@@ -1,0 +1,15 @@
+services:
+  google-chat-app:
+    build: .
+    container_name: keeper-google-chat-app
+    restart: unless-stopped
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+      - ./service-account.json:/app/service-account.json:ro
+      - ./logs:/app/logs
+    environment:
+      CONFIG_PATH: /app/config.yaml
+      GOOGLE_APPLICATION_CREDENTIALS: /app/service-account.json
+      NODE_ENV: production
+      KEEPER_SERVICE_URL: ${KEEPER_SERVICE_URL:-http://host.docker.internal:8900/api/v2/}
+      KEEPER_API_KEY: ${KEEPER_API_KEY:-}
