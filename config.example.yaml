@@ -1,0 +1,17 @@
+google:
+  project_id: "your-gcp-project-id"
+  subscription_id: "keeper-chat-events-sub"
+  topic_id: "keeper-chat-events"
+  credentials_file: "./service-account.json"
+
+chat:
+  app_name: "Keeper Security"
+  command_request_record_id: 1
+  command_request_folder_id: 2
+  command_one_time_share_id: 3
+  command_create_secret_id: 4
+  approvals_space_id: "spaces/REPLACE_ME"
+
+keeper:
+  service_url: "http://localhost:8900/api/v2/"
+  api_key: ""

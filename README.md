@@ -7,6 +7,8 @@ This Node.js project mirrors the Keeper Slack App model, using **Google Cloud Pu
 ## Overview
 
 - Request access to Keeper records with approval workflows (`/keeper-request-record`)
+- Request folder access (`/keeper-request-folder`) and one-time shares (`/keeper-one-time-share`)
+- Create secrets directly in shared folders (`/keeper-create-secret`)
 - Approvers grant or deny access from a dedicated Google Chat space
 - Requesters receive DMs with the result
 - Optional mock mode for UI testing without a live Commander
@@ -68,11 +70,11 @@ Mount `config.yaml` and `service-account.json` (see `docker-compose.yml`).
 ```text
 src/index.js                 # Pub/Sub listener entrypoint
 src/app.js                   # Event normalize + router
-src/handlers/request_record.js
-src/handlers/approvals.js
+src/handlers/                # Slash command + card handlers
+src/handlers/approvals/      # Approval card click actions
+src/lib/cards/               # Google Chat card builders
+src/lib/keeper/              # Commander client (client, search, grants, create)
 src/lib/chat_client.js
-src/lib/keeper_client.js
-src/lib/cards.js
 scripts/test_local_flow.js
 scripts/diagnose_chat_pubsub.js
 config.example.yaml

@@ -1,0 +1,15 @@
+node_modules/
+.env
+.env.*
+!.env.example
+config.yaml
+service-account.json
+*.log
+logs/
+.DS_Store
+coverage/
+dist/
+.idea/
+.vscode/
+*.pem
+*.key
