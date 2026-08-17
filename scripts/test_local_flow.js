@@ -3,9 +3,29 @@
  */
 
 import { KeeperGoogleChatApp } from '../src/app.js';
-import { loadConfig } from '../src/lib/config.js';
+import { buildDeviceApprovalCard, formatDeviceRequestDate } from '../src/lib/cards/device.js';
+import { buildEpmApprovalCard } from '../src/lib/cards/epm.js';
+import {
+  buildConfigFromData,
+  loadConfigSync,
+} from '../src/lib/config.js';
+import {
+  extractFieldValue,
+  mapCommanderRecord,
+  mapGchatRecord,
+  mergeConfigSections,
+} from '../src/lib/ksm_utils.js';
+import {
+  grantNsfFolderAccess,
+  grantNsfRecordAccess,
+  nsfExpireInFlags,
+} from '../src/lib/keeper/grants.js';
 import { createLogger, getLogger } from '../src/lib/logger.js';
-import { KeeperFolder, KeeperRecord } from '../src/lib/models.js';
+import { KeeperFolder, KeeperRecord, EpmRequest } from '../src/lib/models.js';
+import {
+  formatAdminConsoleTimestamp,
+  sanitizeHyperlinks,
+} from '../src/lib/utils.js';
 
 class MockChatClient {
   constructor() {
@@ -14,12 +34,35 @@ class MockChatClient {
     this.patches = [];
   }
 
-  async postMessage({ parent, message, threadName = null, privateViewer = null }) {
-    const entry = { parent, message, thread: threadName, privateViewer };
+  async postMessage({
+    parent,
+    message,
+    threadName = null,
+    privateViewer = null,
+    space = null,
+    preferInPlace = false,
+  }) {
+    // Mirror production: private replies → bot DM unless preferInPlace.
+    if (privateViewer && !preferInPlace) {
+      return this.sendDm(
+        privateViewer,
+        message.text || '',
+        message.cardsV2 || null,
+      );
+    }
+
+    const entry = {
+      parent,
+      message,
+      thread: threadName,
+      privateViewer,
+      space,
+      preferInPlace,
+    };
     this.messages.push(entry);
     console.log('\n--- CHAT POST ---');
     console.log(`parent: ${parent}`);
-    if (privateViewer) console.log(`private to: ${privateViewer}`);
+    if (privateViewer) console.log(`private to: ${privateViewer}${preferInPlace ? ' (in-place)' : ''}`);
     console.log(`text: ${(message.text || '').slice(0, 500)}`);
     if (message.cardsV2) console.log('cardsV2: approval card posted');
     return entry;
@@ -37,8 +80,9 @@ class MockChatClient {
     this.dms.push({ userName, text, cardsV2 });
     console.log('\n--- CHAT DM ---');
     console.log(`to: ${userName}`);
-    console.log(`text: ${text}`);
+    console.log(`text: ${(text || '').slice(0, 500)}`);
     if (cardsV2) console.log('cardsV2: notification card');
+    return { parent: `spaces/DM_${userName}`, message: { text, cardsV2 } };
   }
 }
 
@@ -52,7 +96,7 @@ class MockKeeperClient {
     return true;
   }
 
-  /** Slack-parity stub: production uses Commander `server` command. */
+  /** stub: production uses Commander `server` command. */
   async getServerDomain() {
     return 'keepersecurity.com';
   }
@@ -116,7 +160,7 @@ class MockKeeperClient {
   }
 
   async getRecordOwner(uid) {
-    // UID containing "owned" simulates requester-owned records.
+ // UID containing "owned" simulates requester-owned records.
     if (String(uid).toLowerCase().includes('owned')) {
       return 'requester@example.com';
     }
@@ -309,14 +353,289 @@ class MockKeeperClient {
       editable: Boolean(editable),
     };
   }
+
+  /**
+ * Offline EPM stubs — production uses epm sync-down / approval list|action.
+ * @type {object[]|null}
+ */
+  pendingEpmRequests = [
+    {
+      approval_uid: 'epmApprovalUid01234567',
+      approval_type: 'PrivilegeElevation',
+      status: 'Pending',
+      agent_uid: 'agentUidMock0123456789ab',
+      account_info: ['Username=alice.admin'],
+      application_info: [
+        'Description=Run elevated installer',
+        'FileName=msiexec.exe',
+        'FilePath=C:\\Windows\\System32',
+        'CommandLine=',
+      ],
+      justification: JSON.stringify({ text: 'Need to install patch http://evil.example' }),
+      expire_in: 30,
+      created: '2026-08-10T06:00:00Z',
+    },
+  ];
+
+  epmActionMode = 'success'; // success | already_processed | error
+
+  async getPendingEpmRequests() {
+    return this.pendingEpmRequests;
+  }
+
+  async approveEpmRequest(approvalUid) {
+    if (this.epmActionMode === 'already_processed') {
+      return {
+        success: false,
+        error: 'Approval request does not exist or cannot be modified',
+        already_processed: true,
+      };
+    }
+    if (this.epmActionMode === 'error') {
+      return { success: false, error: 'Commander refused EPM approve' };
+    }
+    return { success: true, approvalUid };
+  }
+
+  async denyEpmRequest(approvalUid) {
+    if (this.epmActionMode === 'already_processed') {
+      return {
+        success: false,
+        error: 'Approval request does not exist or cannot be modified',
+        already_processed: true,
+      };
+    }
+    if (this.epmActionMode === 'error') {
+      return { success: false, error: 'Commander refused EPM deny' };
+    }
+    return { success: true, approvalUid };
+  }
+
+  /**
+   * Offline Cloud SSO device stubs — production uses device-approve.
+   * @type {object[]}
+   */
+  pendingDeviceApprovals = [
+    {
+      device_id: 'deviceMockId0123456789ab',
+      device_name: 'Alice MacBook',
+      device_type: 'DESKTOP',
+      client_version: '16.12.0',
+      email: 'alice@example.com',
+      ip_address: '203.0.113.10',
+      date: '2026-08-11 10:00:00',
+    },
+  ];
+
+  deviceActionMode = 'success'; // success | already_handled | error
+
+  async getPendingDeviceApprovals() {
+    return this.pendingDeviceApprovals;
+  }
+
+  async approveDevice(deviceId) {
+    if (this.deviceActionMode === 'already_handled') {
+      return {
+        success: false,
+        already_handled: true,
+        error: 'This device request was already processed',
+      };
+    }
+    if (this.deviceActionMode === 'error') {
+      return { success: false, error: 'Commander refused device approve' };
+    }
+    return { success: true, deviceId };
+  }
+
+  async denyDevice(deviceId) {
+    if (this.deviceActionMode === 'already_handled') {
+      return {
+        success: false,
+        already_handled: true,
+        error: 'This device request was already processed',
+      };
+    }
+    if (this.deviceActionMode === 'error') {
+      return { success: false, error: 'Commander refused device deny' };
+    }
+    return { success: true, deviceId };
+  }
 }
 
 async function main() {
   createLogger();
   const logger = getLogger();
 
-  const config = loadConfig('config.example.yaml');
+  const config = loadConfigSync('config.example.yaml');
   config.chat.approvalsSpaceId = 'spaces/APPROVALS_DEMO';
+
+  console.log('\n=== NSF Permanent uses --expire-in never ===');
+  if (nsfExpireInFlags(null).join(' ') !== '--expire-in never') {
+    throw new Error(
+      `Expected permanent NSF flags "--expire-in never", got ${nsfExpireInFlags(null)}`,
+    );
+  }
+  if (nsfExpireInFlags(3600).join(' ') !== '--expire-in 1h') {
+    throw new Error(
+      `Expected timed NSF flags "--expire-in 1h", got ${nsfExpireInFlags(3600)}`,
+    );
+  }
+
+  const nsfCmds = [];
+  const nsfFakeClient = {
+    async syncDown() {
+      return {};
+    },
+    async getRecordOwner() {
+      return null;
+    },
+    async executeCommandSafe(command) {
+      nsfCmds.push(String(command));
+      return { ok: true, data: { status: 'success' } };
+    },
+  };
+
+  await grantNsfFolderAccess(nsfFakeClient, {
+    folderUid: 'nsfFolderUid012345678901',
+    userEmail: 'user@example.com',
+    role: 'viewer',
+    durationSeconds: null,
+  });
+  const permanentFolderCmd = nsfCmds.find(
+    (c) => c.includes('nsf-share-folder') && c.includes('grant'),
+  );
+  if (!permanentFolderCmd || !permanentFolderCmd.includes('--expire-in never')) {
+    throw new Error(
+      `Expected nsf-share-folder Permanent to include --expire-in never, got: ${permanentFolderCmd}`,
+    );
+  }
+
+  nsfCmds.length = 0;
+  await grantNsfFolderAccess(nsfFakeClient, {
+    folderUid: 'nsfFolderUid012345678901',
+    userEmail: 'user@example.com',
+    role: 'viewer',
+    durationSeconds: 3600,
+  });
+  const timedFolderCmd = nsfCmds.find(
+    (c) => c.includes('nsf-share-folder') && c.includes('grant'),
+  );
+  if (!timedFolderCmd || !timedFolderCmd.includes('--expire-in 1h')) {
+    throw new Error(
+      `Expected timed nsf-share-folder to keep --expire-in 1h, got: ${timedFolderCmd}`,
+    );
+  }
+  if (timedFolderCmd.includes('--expire-in never')) {
+    throw new Error('Timed NSF folder grant must not send --expire-in never');
+  }
+
+  nsfCmds.length = 0;
+  await grantNsfRecordAccess(nsfFakeClient, {
+    recordUid: 'nsfMockNestedShare01abcd',
+    userEmail: 'user@example.com',
+    role: 'viewer',
+    durationSeconds: null,
+  });
+  const permanentRecordCmd = nsfCmds.find(
+    (c) => c.includes('nsf-share-record') && c.includes('grant'),
+  );
+  if (!permanentRecordCmd || !permanentRecordCmd.includes('--expire-in never')) {
+    throw new Error(
+      `Expected nsf-share-record Permanent to include --expire-in never, got: ${permanentRecordCmd}`,
+    );
+  }
+
+  console.log('NSF --expire-in never checks passed.');
+
+  console.log('\n=== KSM field mapping (offline) ===');
+  const fakeCommanderRecord = {
+    data: {
+      fields: [],
+      custom: [
+        { type: 'text', label: 'service_url', value: ['http://localhost:8900/api/v2/'] },
+        { type: 'text', label: 'api_key', value: ['test-api-key'] },
+      ],
+    },
+  };
+  const commanderMapped = mapCommanderRecord(fakeCommanderRecord);
+  if (commanderMapped.keeper?.api_key !== 'test-api-key') {
+    throw new Error('Expected COMMANDER_RECORD api_key mapping');
+  }
+
+  const saJson = JSON.stringify({
+    type: 'service_account',
+    project_id: 'ksm-proj',
+    private_key: 'x',
+    client_email: 'bot@ksm-proj.iam.gserviceaccount.com',
+  });
+  const fakeGchatRecord = {
+    data: {
+      fields: [],
+      custom: [
+        { type: 'text', label: 'google_service_account_json', value: [saJson] },
+        { type: 'text', label: 'google_project_id', value: ['ksm-proj'] },
+        { type: 'text', label: 'google_subscription_id', value: ['ksm-sub'] },
+        { type: 'text', label: 'google_topic_id', value: ['ksm-topic'] },
+        { type: 'text', label: 'chat_approval_space_id', value: ['spaces/KSM'] },
+        { type: 'text', label: 'chat_command_request_record_id', value: ['11'] },
+        { type: 'text', label: 'chat_command_request_folder_id', value: ['12'] },
+        { type: 'text', label: 'chat_command_external_share_id', value: ['13'] },
+        { type: 'text', label: 'pedm_enabled', value: ['true'] },
+        { type: 'text', label: 'pedm_polling_interval', value: ['90'] },
+        { type: 'text', label: 'device_approval_enabled', value: ['true'] },
+        { type: 'text', label: 'device_approval_polling_interval', value: ['150'] },
+      ],
+    },
+  };
+  if (extractFieldValue(fakeGchatRecord, 'pedm_enabled') !== 'true') {
+    throw new Error('Expected extractFieldValue for pedm_enabled');
+  }
+  const gchatMapped = mapGchatRecord(fakeGchatRecord);
+  if (!gchatMapped.google?.credentials_file) {
+    throw new Error('Expected google_service_account_json written to credentials_file');
+  }
+  if (gchatMapped.google.project_id !== 'ksm-proj') {
+    throw new Error('Expected google_project_id from KSM');
+  }
+  if (gchatMapped.chat?.command_external_share_id !== 13) {
+    throw new Error(
+      `Expected chat_command_external_share_id=13, got ${gchatMapped.chat?.command_external_share_id}`,
+    );
+  }
+  if (gchatMapped.epm?.enabled !== true || gchatMapped.epm?.polling_interval_in_sec !== 90) {
+    throw new Error('Expected pedm_* vault fields to map into epm section');
+  }
+  if (
+    gchatMapped.device_approval?.enabled !== true ||
+    gchatMapped.device_approval?.polling_interval_in_sec !== 150
+  ) {
+    throw new Error('Expected device_approval_* mapping from KSM');
+  }
+
+  const merged = mergeConfigSections(
+    { google: { project_id: 'yaml-proj' }, epm: { enabled: false } },
+    gchatMapped,
+  );
+  const runtime = buildConfigFromData(merged, { ksmLoaded: true });
+  if (runtime.google.projectId !== 'ksm-proj') {
+    throw new Error('KSM should overlay YAML google.project_id');
+  }
+  if (runtime.chat.commandOneTimeShareId !== 13) {
+    throw new Error('Expected external share command id from KSM');
+  }
+  if (!runtime.epm.enabled || runtime.epm.pollingIntervalInSec !== 90) {
+    throw new Error('Expected EPM enabled from pedm_enabled / pedm_polling_interval');
+  }
+  // cleanup temp SA file written by mapGchatRecord
+  try {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    fs.unlinkSync(gchatMapped.google.credentials_file);
+    fs.rmdirSync(path.dirname(gchatMapped.google.credentials_file));
+  } catch {
+    // ignore
+  }
+  console.log('KSM field mapping checks passed.');
 
   const mockChat = new MockChatClient();
   const app = new KeeperGoogleChatApp(config, {
@@ -370,9 +689,13 @@ async function main() {
     },
   };
 
-  const before = mockChat.messages.length;
+  const beforeMessages = mockChat.messages.length;
+  const beforeDms = mockChat.dms.length;
   await app.handleEvent(addonEvent);
-  if (mockChat.messages.length <= before) {
+  if (
+    mockChat.messages.length <= beforeMessages &&
+    mockChat.dms.length <= beforeDms
+  ) {
     throw new Error('Add-on format event was not handled (normalization failed)');
   }
 
@@ -840,7 +1163,7 @@ async function main() {
     },
     message: { name: 'spaces/APPROVALS_DEMO/messages/MSG_FOLDER_APPROVE' },
     action: {
-      // Folder-suffixed method must force folder grant even if request_type is missing
+ // Folder-suffixed method must force folder grant even if request_type is missing
       actionMethodName: 'approve_search_result_folders',
       parameters: [
         { key: 'approval_id', value: 'APR-TEST-FOLDER' },
@@ -849,7 +1172,7 @@ async function main() {
         { key: 'requester_display_name', value: 'Requester User' },
         { key: 'identifier', value: 'Engineering Creds' },
         { key: 'is_uid', value: 'false' },
-        // intentionally omit request_type to prove method-name routing
+ // intentionally omit request_type to prove method-name routing
         { key: 'justification', value: 'Need folder access' },
         { key: 'duration', value: '5m' },
         { key: 'is_nsf', value: 'false' },
@@ -878,7 +1201,7 @@ async function main() {
     keeperClient: new MockKeeperClient(),
   });
 
-  console.log('\nStep 15: requester submits /keeper-one-time-share by UID');
+  console.log('\nStep 15: requester submits /keeper-external-share by UID');
   await app8.handleEvent({
     type: 'MESSAGE',
     user: {
@@ -888,7 +1211,7 @@ async function main() {
     },
     space: { name: 'spaces/REQUESTER_DM' },
     message: {
-      text: '/keeper-one-time-share kR3cF9Xm2Lp8NqT1uV6w Need temporary share link',
+      text: '/keeper-external-share kR3cF9Xm2Lp8NqT1uV6w Need temporary share link',
       argumentText: 'kR3cF9Xm2Lp8NqT1uV6w Need temporary share link',
       slashCommand: { commandId: config.chat.commandOneTimeShareId },
       thread: { name: 'spaces/REQUESTER_DM/threads/THREAD_OTS' },
@@ -919,7 +1242,7 @@ async function main() {
     },
     space: { name: 'spaces/REQUESTER_DM' },
     message: {
-      text: '/keeper-one-time-share "AWS Test" Need temporary share link',
+      text: '/keeper-external-share "AWS Test" Need temporary share link',
       argumentText: '"AWS Test" Need temporary share link',
       slashCommand: { commandId: config.chat.commandOneTimeShareId },
       thread: { name: 'spaces/REQUESTER_DM/threads/THREAD_OTS2' },
@@ -960,7 +1283,7 @@ async function main() {
     },
     message: { name: 'spaces/APPROVALS_DEMO/messages/MSG_OTS_APPROVE' },
     action: {
-      // OTS-suffixed method must force one-time share even if request_type is missing
+ // OTS-suffixed method must force one-time share even if request_type is missing
       actionMethodName: 'approve_search_result_ots',
       parameters: [
         { key: 'approval_id', value: 'APR-TEST-OTS' },
@@ -1060,7 +1383,12 @@ async function main() {
       email: 'requester@example.com',
       displayName: 'Requester User',
     },
-    space: { name: 'spaces/REQUESTER_DM' },
+    space: {
+      name: 'spaces/REQUESTER_DM',
+      spaceType: 'DIRECT_MESSAGE',
+      type: 'DM',
+      singleUserBotDm: true,
+    },
     message: {
       text: '/keeper-create-secret',
       slashCommand: { commandId: config.chat.commandCreateSecretId },
@@ -1071,10 +1399,17 @@ async function main() {
   const folderSelect = mockChatSecret.messages.find(
     (m) =>
       m.privateViewer === 'users/requester' &&
+      m.preferInPlace === true &&
       m.message?.cardsV2?.[0]?.cardId === 'create-secret-folder',
   );
   if (!folderSelect) {
-    throw new Error('Expected create-secret folder select card');
+    throw new Error('Expected create-secret folder select card in-place (not bot DM)');
+  }
+  const folderSelectDmLeak = mockChatSecret.dms.find(
+    (d) => d.cardsV2?.[0]?.cardId === 'create-secret-folder',
+  );
+  if (folderSelectDmLeak) {
+    throw new Error('create-secret folder card should not route to bot DM');
   }
 
   console.log('\nStep 19: select shared folder → form');
@@ -1204,6 +1539,518 @@ async function main() {
   }
 
   console.log('\nCreate secret flows completed successfully.');
+
+  console.log('\n=== EPM / EPM elevation approval flow ===');
+  const mockChatEpm = new MockChatClient();
+  const mockKeeperEpm = new MockKeeperClient();
+  const epmConfig = loadConfigSync('config.example.yaml');
+  epmConfig.chat.approvalsSpaceId = 'spaces/APPROVALS_DEMO';
+  epmConfig.epm = { enabled: true, pollingIntervalInSec: 120 };
+  const appEpm = new KeeperGoogleChatApp(epmConfig, {
+    chatClient: mockChatEpm,
+    keeperClient: mockKeeperEpm,
+  });
+
+  console.log('\nStep 22: parse EPM payload + justification hyperlink sanitization');
+  const parsed = EpmRequest.fromDict(mockKeeperEpm.pendingEpmRequests[0]);
+  if (parsed.username !== 'alice.admin' || parsed.fileName !== 'msiexec.exe') {
+    throw new Error('EpmRequest.fromDict failed to parse account/application_info');
+  }
+  if (!parsed.justification.includes('Need to install patch')) {
+    throw new Error('Expected justification text extracted from JSON');
+  }
+  const sanitizedJust = sanitizeHyperlinks(parsed.justification);
+  if (sanitizedJust.includes(':') || sanitizedJust.includes('/')) {
+    throw new Error('Expected sanitizeHyperlinks to strip : and / from justification');
+  }
+
+  console.log('\nStep 23: poller posts new pending EPM request once');
+  await appEpm.epmPoller._checkAndPostNewRequests();
+  const epmPosts = mockChatEpm.messages.filter(
+    (m) =>
+      m.parent === epmConfig.chat.approvalsSpaceId &&
+      m.message?.cardsV2?.[0]?.cardId === 'epm-epmApprovalUid01234567',
+  );
+  if (epmPosts.length !== 1) {
+    throw new Error(`Expected 1 EPM approval post, got ${epmPosts.length}`);
+  }
+  const epmCardText = JSON.stringify(epmPosts[0].message.cardsV2);
+  if (!epmCardText.includes('Privilege Elevation Approval Request')) {
+    throw new Error('Expected Privilege Elevation Approval Request header');
+  }
+  if (!epmCardText.includes('alice.admin') || !epmCardText.includes('msiexec.exe')) {
+    throw new Error('Expected EPM user/executable on card');
+  }
+  if (!epmCardText.includes('approve_epm_request') || !epmCardText.includes('deny_epm_request')) {
+    throw new Error('Expected Approve/Deny EPM actions on card');
+  }
+  // created: 2026-08-10T06:00:00Z → Admin Console GMT style
+  const expectedEpmCreated = formatAdminConsoleTimestamp(
+    new Date('2026-08-10T06:00:00Z'),
+  );
+  if (!epmCardText.includes(expectedEpmCreated)) {
+    throw new Error(
+      `Expected EPM Created stamp "${expectedEpmCreated}", got: ${epmCardText.slice(0, 500)}`,
+    );
+  }
+  if (!expectedEpmCreated.includes('@') || !expectedEpmCreated.endsWith('GMT')) {
+    throw new Error(`EPM Created stamp missing Admin Console GMT shape: ${expectedEpmCreated}`);
+  }
+
+  await appEpm.epmPoller._checkAndPostNewRequests();
+  const epmPostsAfter = mockChatEpm.messages.filter(
+    (m) => m.message?.cardsV2?.[0]?.cardId === 'epm-epmApprovalUid01234567',
+  );
+  if (epmPostsAfter.length !== 1) {
+    throw new Error('EPM poller re-posted an already-seen request');
+  }
+
+  console.log('\nStep 24: approve EPM request updates card status');
+  const postedCards = epmPosts[0].message.cardsV2;
+  await appEpm.handleEvent({
+    type: 'CARD_CLICKED',
+    user: {
+      name: 'users/approver',
+      email: 'approver@example.com',
+      displayName: 'Approver User',
+    },
+    message: {
+      name: 'spaces/APPROVALS_DEMO/messages/MSG_EPM_1',
+      cardsV2: postedCards,
+    },
+    action: {
+      actionMethodName: 'approve_epm_request',
+      parameters: [
+        { key: 'approval_uid', value: 'epmApprovalUid01234567' },
+        { key: 'username', value: 'alice.admin' },
+        { key: 'approval_type', value: 'PrivilegeElevation' },
+        { key: '__action', value: 'approve_epm_request' },
+      ],
+    },
+  });
+  const approvePatch = mockChatEpm.patches.find((p) =>
+    String(p.message?.text || '').includes('approved'),
+  );
+  if (!approvePatch) {
+    throw new Error('Expected EPM approved status patch');
+  }
+  const approveBody = JSON.stringify(approvePatch.message.cardsV2);
+  if (!approveBody.includes('Approved by')) {
+    throw new Error('Expected Approved by status on EPM card');
+  }
+  if (approveBody.includes('"buttonList"')) {
+    throw new Error('Expected Approve/Deny buttons removed after EPM action');
+  }
+
+  console.log('\nStep 25: already-processed EPM deny shows clear status');
+  mockKeeperEpm.epmActionMode = 'already_processed';
+  const cmdLineRequest = EpmRequest.fromDict({
+    approval_uid: 'epmCmdLineUid012345678',
+    approval_type: 'CommandLine',
+    status: 'Pending',
+    agent_uid: 'agentUidMock0123456789ab',
+    account_info: ['Username=bob.ops'],
+    application_info: [
+      'Description=Shell elevate',
+      'FileName=sudo',
+      'FilePath=/usr/bin',
+      'CommandLine=apt update',
+    ],
+    justification: 'Emergency patch',
+    expire_in: 15,
+    created: '2026-08-10T06:30:00Z',
+  });
+  await appEpm.handleEvent({
+    type: 'CARD_CLICKED',
+    user: {
+      name: 'users/approver',
+      email: 'approver@example.com',
+      displayName: 'Approver User',
+    },
+    message: {
+      name: 'spaces/APPROVALS_DEMO/messages/MSG_EPM_2',
+      cardsV2: buildEpmApprovalCard(cmdLineRequest),
+    },
+    action: {
+      actionMethodName: 'deny_epm_request',
+      parameters: [
+        { key: 'approval_uid', value: 'epmCmdLineUid012345678' },
+        { key: 'username', value: 'bob.ops' },
+        { key: 'approval_type', value: 'CommandLine' },
+        { key: '__action', value: 'deny_epm_request' },
+      ],
+    },
+  });
+  const alreadyPatch = mockChatEpm.patches.find((p) =>
+    String(p.message?.text || '').includes('already processed'),
+  );
+  if (!alreadyPatch) {
+    throw new Error('Expected already-processed EPM status patch');
+  }
+  if (!JSON.stringify(alreadyPatch.message.cardsV2).includes('Already processed')) {
+    throw new Error('Expected Already processed status text on card');
+  }
+
+  console.log('\nStep 26: API null keeps seen list (no clear on failure)');
+  mockKeeperEpm.pendingEpmRequests = null;
+  const seenBefore = appEpm.epmPoller.seenApprovalUids.size;
+  await appEpm.epmPoller._checkAndPostNewRequests();
+  if (appEpm.epmPoller.seenApprovalUids.size !== seenBefore) {
+    throw new Error('EPM poller cleared seen list on API null (should keep intact)');
+  }
+  mockKeeperEpm.pendingEpmRequests = [];
+  await appEpm.epmPoller._checkAndPostNewRequests();
+  if (appEpm.epmPoller.seenApprovalUids.size !== 0) {
+    throw new Error('Expected seen list cleared when pending list is empty');
+  }
+
+  console.log('\nEPM elevation approval flows completed successfully.');
+
+  console.log('\n=== Cloud SSO device approval flow ===');
+  const mockChatDevice = new MockChatClient();
+  const mockKeeperDevice = new MockKeeperClient();
+  const deviceConfig = loadConfigSync('config.example.yaml');
+  deviceConfig.chat.approvalsSpaceId = 'spaces/APPROVALS_DEMO';
+  deviceConfig.deviceApproval = { enabled: true, pollingIntervalInSec: 120 };
+  const appDevice = new KeeperGoogleChatApp(deviceConfig, {
+    chatClient: mockChatDevice,
+    keeperClient: mockKeeperDevice,
+  });
+
+  console.log('\nStep 27: poller posts new pending device once');
+  await appDevice.devicePoller._checkAndPostNewRequests();
+  const devicePosts = mockChatDevice.messages.filter(
+    (m) =>
+      m.parent === deviceConfig.chat.approvalsSpaceId &&
+      m.message?.cardsV2?.[0]?.cardId === 'device-deviceMockId0123456789ab',
+  );
+  if (devicePosts.length !== 1) {
+    throw new Error(`Expected 1 device approval post, got ${devicePosts.length}`);
+  }
+  const deviceCardText = JSON.stringify(devicePosts[0].message.cardsV2);
+  if (!deviceCardText.includes('Cloud SSO Device Approval Request')) {
+    throw new Error('Expected Cloud SSO Device Approval Request header');
+  }
+  if (
+    !deviceCardText.includes('alice@example.com') ||
+    !deviceCardText.includes('Alice MacBook') ||
+    !deviceCardText.includes('203.0.113.10')
+  ) {
+    throw new Error('Expected device email/name/IP on card');
+  }
+  // Commander UTC date → Admin Console GMT style
+  const expectedDeviceRequested = formatDeviceRequestDate('2026-08-11 10:00:00');
+  if (!deviceCardText.includes(expectedDeviceRequested)) {
+    throw new Error(
+      `Expected Requested "${expectedDeviceRequested}", got card: ${deviceCardText.slice(0, 500)}`,
+    );
+  }
+  if (
+    !expectedDeviceRequested.includes('@') ||
+    !expectedDeviceRequested.endsWith('GMT')
+  ) {
+    throw new Error(
+      `Device Requested stamp missing Admin Console GMT shape: ${expectedDeviceRequested}`,
+    );
+  }
+  // UTC 10:00 stays 10:00 AM GMT
+  if (!/10:00:00\s*AM/i.test(expectedDeviceRequested)) {
+    throw new Error(
+      `Expected GMT 10:00:00 AM for UTC input, got: ${expectedDeviceRequested}`,
+    );
+  }
+  if (deviceCardText.includes('2026-08-11 100000')) {
+    throw new Error('Requested timestamp lost colons (sanitizeHyperlinks bug)');
+  }
+  if (!deviceCardText.includes('approve_device') || !deviceCardText.includes('deny_device')) {
+    throw new Error('Expected Approve Device / Deny Device actions on card');
+  }
+
+  await appDevice.devicePoller._checkAndPostNewRequests();
+  const devicePostsAfter = mockChatDevice.messages.filter(
+    (m) => m.message?.cardsV2?.[0]?.cardId === 'device-deviceMockId0123456789ab',
+  );
+  if (devicePostsAfter.length !== 1) {
+    throw new Error('Device poller re-posted an already-seen request');
+  }
+
+  console.log('\nStep 28: approve device updates card status');
+  await appDevice.handleEvent({
+    type: 'CARD_CLICKED',
+    user: {
+      name: 'users/approver',
+      email: 'approver@example.com',
+      displayName: 'Approver User',
+    },
+    message: {
+      name: 'spaces/APPROVALS_DEMO/messages/MSG_DEVICE_1',
+      cardsV2: devicePosts[0].message.cardsV2,
+    },
+    action: {
+      actionMethodName: 'approve_device',
+      parameters: [
+        { key: 'device_id', value: 'deviceMockId0123456789ab' },
+        { key: 'device_name', value: 'Alice MacBook' },
+        { key: 'email', value: 'alice@example.com' },
+        { key: '__action', value: 'approve_device' },
+      ],
+    },
+  });
+  const deviceApprovePatch = mockChatDevice.patches.find((p) =>
+    String(p.message?.text || '').includes('approved'),
+  );
+  if (!deviceApprovePatch) {
+    throw new Error('Expected device approved status patch');
+  }
+  const deviceApproveBody = JSON.stringify(deviceApprovePatch.message.cardsV2);
+  if (!deviceApproveBody.includes('Approved by')) {
+    throw new Error('Expected Approved by status on device card');
+  }
+  if (deviceApproveBody.includes('"buttonList"')) {
+    throw new Error('Expected Approve/Deny buttons removed after device action');
+  }
+
+  console.log('\nStep 29: already-handled device deny shows clear status');
+  mockKeeperDevice.deviceActionMode = 'already_handled';
+  const secondDevice = {
+    device_id: 'deviceMockIdOther0123456',
+    device_name: 'Bob Phone',
+    device_type: 'MOBILE',
+    client_version: '16.11.0',
+    email: 'bob@example.com',
+    ip_address: '198.51.100.20',
+    date: '2026-08-11 11:00:00',
+  };
+  await appDevice.handleEvent({
+    type: 'CARD_CLICKED',
+    user: {
+      name: 'users/approver',
+      email: 'approver@example.com',
+      displayName: 'Approver User',
+    },
+    message: {
+      name: 'spaces/APPROVALS_DEMO/messages/MSG_DEVICE_2',
+      cardsV2: buildDeviceApprovalCard(secondDevice),
+    },
+    action: {
+      actionMethodName: 'deny_device',
+      parameters: [
+        { key: 'device_id', value: 'deviceMockIdOther0123456' },
+        { key: 'device_name', value: 'Bob Phone' },
+        { key: 'email', value: 'bob@example.com' },
+        { key: '__action', value: 'deny_device' },
+      ],
+    },
+  });
+  const deviceAlreadyPatch = mockChatDevice.patches.find((p) =>
+    String(p.message?.text || '').includes('already processed'),
+  );
+  if (!deviceAlreadyPatch) {
+    throw new Error('Expected already-processed device status patch');
+  }
+  if (!JSON.stringify(deviceAlreadyPatch.message.cardsV2).includes('Already processed')) {
+    throw new Error('Expected Already processed status text on device card');
+  }
+
+  console.log('\nStep 30: empty pending clears seen list');
+  mockKeeperDevice.pendingDeviceApprovals = [];
+  await appDevice.devicePoller._checkAndPostNewRequests();
+  if (appDevice.devicePoller.seenDeviceIds.size !== 0) {
+    throw new Error('Expected device seen list cleared when pending list is empty');
+  }
+
+  console.log('\nCloud SSO device approval flows completed successfully.');
+
+  console.log('\n=== Private replies always go to bot 1:1 DM ===');
+  const mockChatPeerDm = new MockChatClient();
+  const appPeerDm = new KeeperGoogleChatApp(config, {
+    chatClient: mockChatPeerDm,
+    keeperClient: new MockKeeperClient(),
+  });
+
+  console.log('\nStep 31: slash command in peer DM routes confirmations to bot DM only');
+  await appPeerDm.handleEvent({
+    type: 'MESSAGE',
+    user: {
+      name: 'users/requester',
+      email: 'requester@example.com',
+      displayName: 'Requester User',
+    },
+    space: {
+      name: 'spaces/PEER_DM_WITH_OTHER_USER',
+      spaceType: 'DIRECT_MESSAGE',
+      type: 'DM',
+    },
+    message: {
+      text: '/keeper-request-folder test need access',
+      argumentText: 'test need access',
+      slashCommand: { commandId: config.chat.commandRequestFolderId },
+      thread: { name: 'spaces/PEER_DM_WITH_OTHER_USER/threads/T1' },
+    },
+  });
+
+  const leakedToPeerDm = mockChatPeerDm.messages.filter(
+    (m) =>
+      m.parent === 'spaces/PEER_DM_WITH_OTHER_USER' &&
+      String(m.message?.text || '').includes('request submitted'),
+  );
+  if (leakedToPeerDm.length) {
+    throw new Error('Requester confirmation leaked into peer DM (should be bot DM only)');
+  }
+
+  const botDmConfirm = mockChatPeerDm.dms.find(
+    (d) =>
+      d.userName === 'users/requester' &&
+      String(d.text || '').includes('Folder access request submitted'),
+  );
+  if (!botDmConfirm) {
+    throw new Error('Expected folder confirmation DM to requester (bot 1:1)');
+  }
+
+  const approvalsStillPosted = mockChatPeerDm.messages.find(
+    (m) => m.parent === config.chat.approvalsSpaceId,
+  );
+  if (!approvalsStillPosted) {
+    throw new Error('Expected approval card still posted to approvals space');
+  }
+
+  console.log('\nStep 32: slash command in a space/channel also routes to bot DM only');
+  const mockChatSpace = new MockChatClient();
+  const appSpace = new KeeperGoogleChatApp(config, {
+    chatClient: mockChatSpace,
+    keeperClient: new MockKeeperClient(),
+  });
+  await appSpace.handleEvent({
+    type: 'MESSAGE',
+    user: {
+      name: 'users/requester',
+      email: 'requester@example.com',
+      displayName: 'Requester User',
+    },
+    space: {
+      name: 'spaces/TEAM_CHANNEL',
+      spaceType: 'SPACE',
+      type: 'ROOM',
+    },
+    message: {
+      text: '/keeper-external-share test need ots',
+      argumentText: 'test need ots',
+      slashCommand: { commandId: config.chat.commandOneTimeShareId },
+      thread: { name: 'spaces/TEAM_CHANNEL/threads/T2' },
+    },
+  });
+
+  const leakedToChannel = mockChatSpace.messages.filter(
+    (m) =>
+      m.parent === 'spaces/TEAM_CHANNEL' &&
+      String(m.message?.text || '').toLowerCase().includes('submitted'),
+  );
+  if (leakedToChannel.length) {
+    throw new Error('Requester confirmation leaked into space/channel');
+  }
+
+  const channelBotDm = mockChatSpace.dms.find(
+    (d) =>
+      d.userName === 'users/requester' &&
+      String(d.text || '').includes('External Share request submitted'),
+  );
+  if (!channelBotDm) {
+    throw new Error('Expected OTS confirmation DM to requester from space command');
+  }
+
+  const channelApprovals = mockChatSpace.messages.find(
+    (m) => m.parent === config.chat.approvalsSpaceId,
+  );
+  if (!channelApprovals) {
+    throw new Error('Expected OTS approval card still posted to approvals space');
+  }
+
+  console.log('\nStep 33: create-secret in a space stays in-place (not bot DM)');
+  const mockChatCreateSpace = new MockChatClient();
+  const appCreateSpace = new KeeperGoogleChatApp(config, {
+    chatClient: mockChatCreateSpace,
+    keeperClient: new MockKeeperClient(),
+  });
+  await appCreateSpace.handleEvent({
+    type: 'MESSAGE',
+    user: {
+      name: 'users/requester',
+      email: 'requester@example.com',
+      displayName: 'Requester User',
+    },
+    space: {
+      name: 'spaces/TEAM_CHANNEL_CREATE',
+      spaceType: 'SPACE',
+      type: 'ROOM',
+    },
+    message: {
+      text: '/keeper-create-secret',
+      slashCommand: { commandId: config.chat.commandCreateSecretId },
+      thread: { name: 'spaces/TEAM_CHANNEL_CREATE/threads/T3' },
+    },
+  });
+
+  const createInPlace = mockChatCreateSpace.messages.find(
+    (m) =>
+      m.parent === 'spaces/TEAM_CHANNEL_CREATE' &&
+      m.preferInPlace === true &&
+      m.message?.cardsV2?.[0]?.cardId === 'create-secret-folder',
+  );
+  if (!createInPlace) {
+    throw new Error('Expected create-secret folder card posted in the space');
+  }
+  if (
+    mockChatCreateSpace.dms.some(
+      (d) => d.cardsV2?.[0]?.cardId === 'create-secret-folder',
+    )
+  ) {
+    throw new Error('create-secret must not send folder card to bot DM');
+  }
+
+  console.log('\nStep 34: create-secret in peer DM is rejected (no form leak)');
+  const mockChatPeerCreate = new MockChatClient();
+  const appPeerCreate = new KeeperGoogleChatApp(config, {
+    chatClient: mockChatPeerCreate,
+    keeperClient: new MockKeeperClient(),
+  });
+  await appPeerCreate.handleEvent({
+    type: 'MESSAGE',
+    user: {
+      name: 'users/requester',
+      email: 'requester@example.com',
+      displayName: 'Requester User',
+    },
+    space: {
+      name: 'spaces/PEER_DM_CREATE',
+      spaceType: 'DIRECT_MESSAGE',
+      type: 'DM',
+    },
+    message: {
+      text: '/keeper-create-secret',
+      slashCommand: { commandId: config.chat.commandCreateSecretId },
+      thread: { name: 'spaces/PEER_DM_CREATE/threads/T4' },
+    },
+  });
+
+  const leakedFolderInPeerDm = mockChatPeerCreate.messages.filter(
+    (m) =>
+      m.parent === 'spaces/PEER_DM_CREATE' &&
+      m.message?.cardsV2?.[0]?.cardId === 'create-secret-folder',
+  );
+  if (leakedFolderInPeerDm.length) {
+    throw new Error('create-secret folder card must not post into peer DM');
+  }
+
+  const peerRejectDm = mockChatPeerCreate.dms.find(
+    (d) =>
+      d.userName === 'users/requester' &&
+      String(d.text || '').includes('cannot be used in a DM with another person'),
+  );
+  if (!peerRejectDm) {
+    throw new Error('Expected create-secret peer-DM rejection in bot 1:1 DM');
+  }
+
+  console.log('\nBot-DM private routing (DM + space) + create-secret in-place completed successfully.');
 
   console.log('\nAll local flows completed successfully.');
 }

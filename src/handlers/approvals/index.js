@@ -31,7 +31,7 @@ export async function handleCardClicked(event, chatClient, keeperClient) {
     '';
   let actionData = ApprovalActionData.fromParameters(params);
 
-  // Typed method names keep routing correct if request_type is dropped.
+ // Typed method names keep routing correct if request_type is dropped.
   const resolved = resolveTypedAwareMethod(method, actionData);
   method = resolved.method;
   actionData = resolved.actionData;
@@ -114,7 +114,7 @@ export async function handleCardClicked(event, chatClient, keeperClient) {
       await chatClient.sendDm(
         approverName,
         actionData.isOneTimeShareRequest
-          ? 'Create New Record is not available for one-time share requests.'
+          ? 'Create New Record is not available for external share requests.'
           : 'Create New Record is only available for record access requests.',
       );
       return;

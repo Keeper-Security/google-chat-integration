@@ -43,7 +43,7 @@ export async function getRecordByUid(client, uid) {
 }
 
 /**
- * Search records by description/title (category filter like Slack).
+ * Search records by description/title (category filter).
  * @param {string} query
  * @param {number} [limit]
  * @param {{ forOneTimeShare?: boolean }} [options]
@@ -176,7 +176,7 @@ export async function getFolderByUid(client, folderUid) {
     const match = folders.find((item) => item.uid === folderUid);
     if (match) return match;
 
-    // Also check raw rows for non-folder types (record submitted as folder UID).
+ // Also check raw rows for non-folder types (record submitted as folder UID).
     const rows = client.extractRecords(result);
     const exact = rows.find(
       (item) => item && typeof item === 'object' && item.uid === folderUid,
@@ -236,7 +236,7 @@ export function parseSearchFolders(client, result, limit = 10) {
     folderType = String(folderType).toLowerCase();
     if (!uid || !name) continue;
     if (folderType && !FOLDER_ITEM_TYPES.has(folderType) && folderType !== 'record') {
-      // Skip obvious records from mixed search payloads
+ // Skip obvious records from mixed search payloads
       if (item.record_type || item.title) continue;
     }
     if (folderType === 'record') continue;

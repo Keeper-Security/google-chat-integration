@@ -29,6 +29,9 @@ export class ChatClient {
    * @param {string} [options.threadName]
    * @param {string} [options.privateViewer]
    * @param {object} [options.space]
+   * @param {boolean} [options.preferInPlace] - Keep interactive replies in the
+   *   invoking space/DM (e.g. create-secret). Default routes private replies
+   *   to a 1:1 bot DM so peers never see request confirmations.
    */
   async postMessage({
     parent,
@@ -36,40 +39,62 @@ export class ChatClient {
     threadName = null,
     privateViewer = null,
     space = null,
+    preferInPlace = false,
   }) {
+    // Default: requester-only text/cards go to bot DM.
+    // Exception: preferInPlace (create-secret multi-step UI stays in context).
+    if (privateViewer && !preferInPlace) {
+      this.logger.debug(
+        { privateViewer, parent, spaceType: space?.spaceType || space?.type },
+        'Routing private reply to bot 1:1 DM',
+      );
+      return this.sendDm(
+        privateViewer,
+        message.text || '',
+        message.cardsV2 || null,
+      );
+    }
+
     const payload = { ...message };
     if (threadName) {
       payload.thread = { name: threadName };
     }
 
-    const usePrivate = Boolean(privateViewer) && !isDmSpace(space || {});
+    // In spaces, hide in-place private replies from other members.
+    // In DMs, privateMessageViewer is not used (post in the same DM).
+    const usePrivate =
+      Boolean(privateViewer) && preferInPlace && !isDmSpace(space || {});
+
     const request = {
       parent,
       message: payload,
     };
 
     if (usePrivate) {
-      request.messageReplyOption = MessageReplyOption.REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD;
+      request.messageReplyOption =
+        MessageReplyOption.REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD;
       payload.privateMessageViewer = { name: privateViewer };
     } else if (threadName) {
-      request.messageReplyOption = MessageReplyOption.REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD;
+      request.messageReplyOption =
+        MessageReplyOption.REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD;
     }
 
     try {
       const [created] = await this.client.createMessage(request);
-      this.logger.debug({ parent }, 'Posted message');
+      this.logger.debug({ parent, preferInPlace, usePrivate }, 'Posted message');
       return created;
     } catch (error) {
       if (!usePrivate) throw error;
-      this.logger.warn({ err: error }, 'Private reply failed; retrying as normal message');
-      delete payload.privateMessageViewer;
-      const [created] = await this.client.createMessage({
-        parent,
-        message: payload,
-        messageReplyOption: MessageReplyOption.REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD,
-      });
-      this.logger.debug({ parent }, 'Posted fallback message');
-      return created;
+      // Prefer bot DM over leaking a public channel message.
+      this.logger.warn(
+        { err: error },
+        'In-place private reply failed; falling back to bot 1:1 DM',
+      );
+      return this.sendDm(
+        privateViewer,
+        message.text || '',
+        message.cardsV2 || null,
+      );
     }
   }
 
@@ -115,7 +140,10 @@ export class ChatClient {
     } catch (error) {
       // 5 = NOT_FOUND — no DM yet; create one below.
       if (error?.code !== 5) {
-        this.logger.warn({ err: error, userName }, 'findDirectMessage failed; trying setupSpace');
+        this.logger.warn(
+          { err: error, userName },
+          'findDirectMessage failed; trying setupSpace',
+        );
       }
     }
 

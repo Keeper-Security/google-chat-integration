@@ -7,13 +7,15 @@ import { submitError } from '../commander_errors.js';
 import { flattenMessage, sleep } from '../commander_helpers.js';
 import { getLogger } from '../logger.js';
 import * as create from './create.js';
+import * as device from './device.js';
+import * as epm from './epm.js';
 import * as grants from './grants.js';
 import * as search from './search.js';
 
 export class KeeperClient {
   /**
-   * @param {object} config
-   */
+ * @param {object} config
+ */
   constructor(config) {
     this.config = config;
     this.logger = getLogger();
@@ -33,9 +35,9 @@ export class KeeperClient {
   }
 
   /**
-   * Resolve Keeper vault host via Commander `server` (cached).
-   * @returns {Promise<string>}
-   */
+ * Resolve Keeper vault host via Commander `server` (cached).
+ * @returns {Promise<string>}
+ */
   async getServerDomain() {
     if (this._serverDomain) return this._serverDomain;
     if (this._serverDomainPromise) return this._serverDomainPromise;
@@ -54,8 +56,8 @@ export class KeeperClient {
   }
 
   /**
-   * @returns {Promise<{ domain: string, fromCommander: boolean }>}
-   */
+ * @returns {Promise<{ domain: string, fromCommander: boolean }>}
+ */
   async _fetchServerDomain() {
     const defaultDomain = 'keepersecurity.com';
     try {
@@ -134,10 +136,10 @@ export class KeeperClient {
   }
 
   /**
-   * @param {string} command
-   * @param {number} [timeoutMs]
-   * @returns {Promise<{ ok: true, data: object } | { ok: false, error: object }>}
-   */
+ * @param {string} command
+ * @param {number} [timeoutMs]
+ * @returns {Promise<{ ok: true, data: object } | { ok: false, error: object }>}
+ */
   async executeCommandSafe(command, timeoutMs = 15000) {
     const response = await fetch(`${this.baseUrl}executecommand-async`, {
       method: 'POST',
@@ -170,9 +172,9 @@ export class KeeperClient {
   }
 
   /**
-   * @param {string} command
-   * @param {number} [timeoutMs]
-   */
+ * @param {string} command
+ * @param {number} [timeoutMs]
+ */
   async executeCommand(command, timeoutMs = 15000) {
     const result = await this.executeCommandSafe(command, timeoutMs);
     if (!result.ok) {
@@ -243,7 +245,7 @@ export class KeeperClient {
         delay = Math.min(delay * 2, 2000);
         continue;
       }
-      // 400/500 often include the real Commander error JSON for grant conflict mapping.
+ // 400/500 often include the real Commander error JSON for grant conflict mapping.
       if (!resultResponse.ok) {
         return this._parseCommanderResultBody(
           resultResponse,
@@ -256,10 +258,10 @@ export class KeeperClient {
   }
 
   /**
-   * Parse /result body on success or error HTTP status.
-   * @param {Response} resultResponse
-   * @param {string} fallbackMessage
-   */
+ * Parse /result body on success or error HTTP status.
+ * @param {Response} resultResponse
+ * @param {string} fallbackMessage
+ */
   async _parseCommanderResultBody(resultResponse, fallbackMessage) {
     const httpStatus = resultResponse.status;
     try {
@@ -276,7 +278,7 @@ export class KeeperClient {
         return body;
       }
     } catch {
-      // non-JSON body
+ // non-JSON body
     }
     return {
       status: 'error',
@@ -478,5 +480,33 @@ export class KeeperClient {
 
   async parseCreateRecordResult(resultData, meta) {
     return create.parseCreateRecordResult(this, resultData, meta);
+  }
+
+  async syncEpmData() {
+    return epm.syncEpmData(this);
+  }
+
+  async getPendingEpmRequests() {
+    return epm.getPendingEpmRequests(this);
+  }
+
+  async approveEpmRequest(approvalUid) {
+    return epm.approveEpmRequest(this, approvalUid);
+  }
+
+  async denyEpmRequest(approvalUid) {
+    return epm.denyEpmRequest(this, approvalUid);
+  }
+
+  async getPendingDeviceApprovals() {
+    return device.getPendingDeviceApprovals(this);
+  }
+
+  async approveDevice(deviceId) {
+    return device.approveDevice(this, deviceId);
+  }
+
+  async denyDevice(deviceId) {
+    return device.denyDevice(this, deviceId);
   }
 }

@@ -19,7 +19,7 @@ import {
 } from '../utils.js';
 
 /**
- * Create a one-time share link (Slack parity).
+ * Create a one-time share link 
  * Commander: `one-time-share create[--editable] <uid> -e <expire>`
  */
 export async function createOneTimeShare(client, {
@@ -68,7 +68,7 @@ export async function createOneTimeShare(client, {
 
 /**
  * Shared folders visible to a user via `share-report -f --format=json`.
- * Slack parity: filter rows where `Shared To` matches the user email.
+ * Filter share-report rows where Shared To matches the user email.
  * @param {string} userEmail
  * @returns {Promise<Array<{ uid: string, name: string, type: string, is_nsf: boolean }>>}
  */

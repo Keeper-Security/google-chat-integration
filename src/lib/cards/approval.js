@@ -293,19 +293,19 @@ export function buildApprovedCard(actionData, approverEmail, permission, expires
   let title = forFolder
     ? 'Folder Access Request Approved'
     : actionData.isOneTimeShareRequest
-      ? 'One-Time Share Request Approved'
+      ? 'External Share Request Approved'
       : 'Record Access Request Approved';
   if (extras.selfDestruct) {
     title = 'Self-Destruct Record Access Approved';
   }
   if (extras.oneTimeShare) {
-    title = 'One-Time Share Request Approved';
+    title = 'External Share Request Approved';
   }
 
   let statusBlock;
   if (extras.oneTimeShare) {
     statusBlock =
-      `<font color="#2EA35B"><b>One-Time Share Link Created</b></font><br>` +
+      `<font color="#2EA35B"><b>External Share Link Created</b></font><br>` +
       `Link sent to requester • Expires: ${expiresAt}`;
   } else if (isPermanent) {
     statusBlock =
@@ -346,7 +346,7 @@ export function buildApprovedCard(actionData, approverEmail, permission, expires
 
 export function buildDeniedCard(actionData, approverEmail) {
   const title = actionData.isOneTimeShareRequest
-    ? 'One-Time Share Request Denied ✗'
+    ? 'External Share Request Denied ✗'
     : actionData.isFolderRequest
       ? 'Folder Access Request Denied ✗'
       : 'Record Access Request Denied ✗';
@@ -371,7 +371,7 @@ export function buildDeniedCard(actionData, approverEmail) {
 }
 
 /**
- * Terminal approval status when the requester already owns the record (Slack parity).
+ * Terminal approval status when the requester already owns the record 
  */
 export function buildOwnerAlreadyHasAccessCard(actionData, approverEmail) {
   return buildRequestCard(

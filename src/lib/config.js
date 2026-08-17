@@ -1,26 +1,20 @@
 /**
  * Application configuration loader.
- * Precedence: environment variables > config.yaml > defaults.
+ *
+ * Local: config.yaml (CONFIG_PATH)
+ * Production / Docker: KSM_CONFIG + COMMANDER_RECORD + GCHAT_RECORD
+ *   (KSM overlays YAML when both are present)
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
 import yaml from 'js-yaml';
-import dotenv from 'dotenv';
-
-dotenv.config();
-
-function env(name, fallback = '') {
-  const value = process.env[name];
-  return value === undefined || value === '' ? fallback : value;
-}
-
-function envInt(name, fallback) {
-  const raw = process.env[name];
-  if (raw === undefined || raw === '') return fallback;
-  const parsed = Number.parseInt(raw, 10);
-  return Number.isNaN(parsed) ? fallback : parsed;
-}
+import {
+  fetchCredentialsFromKsm,
+  mergeConfigSections,
+  resolveKsmBootstrap,
+} from './ksm_utils.js';
+import { getLogger } from './logger.js';
 
 function projectIdFromServiceAccount(credentialsFile) {
   try {
@@ -33,12 +27,76 @@ function projectIdFromServiceAccount(credentialsFile) {
   }
 }
 
+function asBool(value, fallback = false) {
+  if (value === undefined || value === null || value === '') return fallback;
+  if (typeof value === 'boolean') return value;
+  return ['1', 'true', 'yes', 'y', 'on'].includes(String(value).trim().toLowerCase());
+}
+
+function asInt(value, fallback) {
+  const parsed = Number.parseInt(String(value ?? ''), 10);
+  return Number.isNaN(parsed) ? fallback : parsed;
+}
+
 /**
- * @returns {import('./types.js').AppConfig}
+ * Build runtime config object from merged YAML/KSM section data.
+ * @param {object} fileData
+ * @param {{ configPath?: string, ksmLoaded?: boolean }} [meta]
  */
-export function loadConfig(configPath) {
+export function buildConfigFromData(fileData = {}, meta = {}) {
+  const google = fileData.google || {};
+  const chat = fileData.chat || {};
+  const keeper = fileData.keeper || {};
+  const epm = fileData.epm || {};
+  const deviceApproval = fileData.device_approval || {};
+
+  const credentialsFile = path.resolve(
+    google.credentials_file || './service-account.json',
+  );
+
+  let projectId = google.project_id || '';
+  if (!projectId) {
+    projectId = projectIdFromServiceAccount(credentialsFile);
+  }
+
+  return {
+    configPath: meta.configPath || '',
+    ksmLoaded: Boolean(meta.ksmLoaded),
+    google: {
+      projectId,
+      subscriptionId: google.subscription_id || 'keeper-chat-events-sub',
+      topicId: google.topic_id || 'keeper-chat-events',
+      credentialsFile,
+    },
+    chat: {
+      appName: chat.app_name || 'Keeper Security',
+      commandRequestRecordId: asInt(chat.command_request_record_id, 1),
+      commandRequestFolderId: asInt(chat.command_request_folder_id, 2),
+      commandOneTimeShareId: asInt(chat.command_external_share_id, 3),
+      commandCreateSecretId: asInt(chat.command_create_secret_id, 4),
+      approvalsSpaceId: chat.approvals_space_id || '',
+    },
+    keeper: {
+      serviceUrl: keeper.service_url || 'http://localhost:8900/api/v2/',
+      apiKey: keeper.api_key || '',
+    },
+    epm: {
+      enabled: asBool(epm.enabled, false),
+      pollingIntervalInSec: asInt(epm.polling_interval_in_sec, 120),
+    },
+    deviceApproval: {
+      enabled: asBool(deviceApproval.enabled, false),
+      pollingIntervalInSec: asInt(deviceApproval.polling_interval_in_sec, 120),
+    },
+  };
+}
+
+/**
+ * @param {string} [configPath]
+ */
+export async function loadConfig(configPath) {
   const resolvedPath = path.resolve(
-    configPath || env('CONFIG_PATH', 'config.yaml'),
+    configPath || process.env.CONFIG_PATH || 'config.yaml',
   );
 
   let fileData = {};
@@ -46,52 +104,53 @@ export function loadConfig(configPath) {
     fileData = yaml.load(fs.readFileSync(resolvedPath, 'utf8')) || {};
   }
 
-  const google = fileData.google || {};
-  const chat = fileData.chat || {};
-  const keeper = fileData.keeper || {};
+  const bootstrap = resolveKsmBootstrap();
+  let ksmLoaded = false;
 
-  const credentialsFile = path.resolve(
-    env('GOOGLE_APPLICATION_CREDENTIALS', google.credentials_file || './service-account.json'),
-  );
-
-  let projectId = env('GOOGLE_PROJECT_ID', google.project_id || '');
-  if (!projectId) {
-    projectId = projectIdFromServiceAccount(credentialsFile);
+  // Only hit KSM when KSM_CONFIG (or docker secret) is present — local YAML mode otherwise.
+  if (bootstrap.ksmConfig) {
+    try {
+      const { data, ksmLoaded: loaded } = await fetchCredentialsFromKsm({
+        ksmConfig: bootstrap.ksmConfig,
+        commanderRecord: bootstrap.commanderRecord,
+        gchatRecord: bootstrap.gchatRecord,
+      });
+      if (loaded && data && Object.keys(data).length) {
+        fileData = mergeConfigSections(fileData, data);
+        ksmLoaded = true;
+      }
+    } catch (error) {
+      try {
+        getLogger().warn({ err: error }, 'Failed to load configuration from KSM');
+      } catch {
+        // logger may not exist yet during early bootstrap
+        console.warn('Failed to load configuration from KSM', error);
+      }
+    }
   }
 
-  return {
+  return buildConfigFromData(fileData, {
     configPath: resolvedPath,
-    google: {
-      projectId,
-      subscriptionId: env('GOOGLE_SUBSCRIPTION_ID', google.subscription_id || 'keeper-chat-events-sub'),
-      topicId: env('GOOGLE_TOPIC_ID', google.topic_id || 'keeper-chat-events'),
-      credentialsFile,
-    },
-    chat: {
-      appName: env('CHAT_APP_NAME', chat.app_name || 'Keeper Security'),
-      commandRequestRecordId: envInt(
-        'CHAT_COMMAND_REQUEST_RECORD_ID',
-        Number(chat.command_request_record_id ?? 1),
-      ),
-      commandRequestFolderId: envInt(
-        'CHAT_COMMAND_REQUEST_FOLDER_ID',
-        Number(chat.command_request_folder_id ?? 2),
-      ),
-      commandOneTimeShareId: envInt(
-        'CHAT_COMMAND_ONE_TIME_SHARE_ID',
-        Number(chat.command_one_time_share_id ?? 3),
-      ),
-      commandCreateSecretId: envInt(
-        'CHAT_COMMAND_CREATE_SECRET_ID',
-        Number(chat.command_create_secret_id ?? 4),
-      ),
-      approvalsSpaceId: env('CHAT_APPROVALS_SPACE_ID', chat.approvals_space_id || ''),
-    },
-    keeper: {
-      serviceUrl: env('KEEPER_SERVICE_URL', keeper.service_url || 'http://localhost:8900/api/v2/'),
-      apiKey: env('KEEPER_API_KEY', keeper.api_key || ''),
-    },
-  };
+    ksmLoaded,
+  });
+}
+
+/**
+ * Sync load for offline tests that only use YAML (no KSM).
+ * @param {string} [configPath]
+ */
+export function loadConfigSync(configPath) {
+  const resolvedPath = path.resolve(
+    configPath || process.env.CONFIG_PATH || 'config.yaml',
+  );
+  let fileData = {};
+  if (fs.existsSync(resolvedPath)) {
+    fileData = yaml.load(fs.readFileSync(resolvedPath, 'utf8')) || {};
+  }
+  return buildConfigFromData(fileData, {
+    configPath: resolvedPath,
+    ksmLoaded: false,
+  });
 }
 
 export function validateStartupConfig(config) {
@@ -102,8 +161,9 @@ export function validateStartupConfig(config) {
     missing.push(`google.credentials_file (${config.google.credentialsFile})`);
   }
   if (missing.length) {
-    throw new Error(
-      `Missing configuration: ${missing.join(', ')}. Copy config.example.yaml to config.yaml and place service-account.json in the project root.`,
-    );
+    const hint = config.ksmLoaded
+      ? 'Check GCHAT_RECORD fields in KSM (google_project_id, google_subscription_id, google_service_account_json).'
+      : 'Copy config.example.yaml to config.yaml and place service-account.json, or set KSM_CONFIG / GCHAT_RECORD.';
+    throw new Error(`Missing configuration: ${missing.join(', ')}. ${hint}`);
   }
 }

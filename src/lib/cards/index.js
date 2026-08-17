@@ -24,3 +24,11 @@ export {
   buildOneTimeShareDm,
   buildAccessDeniedDm,
 } from './dm.js';
+export {
+  buildEpmApprovalCard,
+  buildEpmStatusCard,
+} from './epm.js';
+export {
+  buildDeviceApprovalCard,
+  buildDeviceStatusCard,
+} from './device.js';

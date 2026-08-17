@@ -10,13 +10,13 @@ export const MAX_JUSTIFICATION_LENGTH = 500;
 const UID_PATTERN = /^[A-Za-z0-9_-]{20,24}$/;
 
 /**
- * Shell / injection chars for slash-command input (Slack `sanitize_command_input`).
+ * Shell / injection chars for slash-command input.
  * Note: `/` is intentionally kept so path-like search terms still work.
  */
 const COMMAND_UNSAFE_CHARS = /[;|&$`(){}[\]!\\\n\r\x00:]/g;
 
 /**
- * Search-query chars (Slack `KeeperClient._sanitize_search_query`).
+ * Unsafe characters stripped from search queries.
  */
 const SEARCH_UNSAFE_CHARS = /[;|&$`(){}[\]!\\\n\r\x00<>"']/g;
 
@@ -44,7 +44,7 @@ export function parseCommandText(argumentText) {
   const quoted = text.match(/^["']([^"']+)["']\s*(.*)$/s);
   if (quoted) {
     let identifier = quoted[1].trim();
-    // Slack strips markdown wrappers from identifiers (*, _, ~, `).
+ // Strip markdown wrappers from identifiers (*, _, ~, `).
     identifier = identifier.replace(/^[*_~`]+|[*_~`]+$/g, '');
     return [identifier, (quoted[2] || '').trim()];
   }
@@ -58,7 +58,7 @@ export function parseCommandText(argumentText) {
 
 /**
  * Strip mention spam (@here / @channel / @everyone / @all).
- * Slack `sanitize_slack_mentions` parity (plain-text form used in Chat).
+ * Mention sanitization for Chat text.
  * @param {string} text
  */
 export function sanitizeMentions(text) {
@@ -77,7 +77,7 @@ export function sanitizeMentions(text) {
 }
 
 /**
- * Prevent URL injection in displayed text (Slack `sanitize_hyperlinks`).
+ * Prevent URL injection in displayed text.
  * Removes `:` and `/` so values cannot become clickable links.
  * @param {string} text
  */
@@ -87,7 +87,7 @@ export function sanitizeHyperlinks(text) {
 }
 
 /**
- * Strip shell special chars from command input (Slack `sanitize_command_input`).
+ * Strip shell special chars from command input.
  * Keeps `/` for path-like identifiers; strips `:` (URL scheme).
  * @param {string} text
  */
@@ -97,7 +97,7 @@ export function sanitizeCommandInput(text) {
 }
 
 /**
- * Sanitize Commander search terms (Slack `_sanitize_search_query`).
+ * Sanitize Commander search terms.
  * @param {string} query
  */
 export function sanitizeSearchQuery(query) {
@@ -106,7 +106,7 @@ export function sanitizeSearchQuery(query) {
 }
 
 /**
- * Length check (Slack `validate_input_length`).
+ * Input length validation.
  * @param {string} text
  * @param {number} maxLength
  * @param {string} [fieldName]
@@ -124,7 +124,7 @@ export function validateInputLength(text, maxLength, fieldName = 'Input') {
 }
 
 /**
- * Full slash-command sanitization (Slack `sanitize_user_input`).
+ * Full slash-command sanitization.
  * Mentions → command chars → length validated first.
  * @param {string} value
  * @param {number} maxLength
@@ -145,7 +145,7 @@ export function sanitizeUserInput(value, maxLength, fieldName = 'Input') {
 }
 
 export function isValidUid(uid) {
-  // Slack strips markdown wrappers before UID check.
+ // Strip markdown wrappers before UID check.
   const cleaned = String(uid || '').replace(/^[*_~`]+|[*_~`]+$/g, '');
   return UID_PATTERN.test(cleaned);
 }
@@ -185,7 +185,7 @@ export function formatDuration(duration) {
 }
 
 /**
- * Human-readable label for a duration in seconds (Slack parity).
+ * Human-readable label for a duration in seconds 
  * @param {number|null|undefined} seconds
  */
 export function formatDurationFromSeconds(seconds) {
@@ -236,6 +236,108 @@ export function formatTimestamp(date = new Date()) {
 }
 
 /**
+ * Keeper Admin Console style in GMT (USA / Commander server time):
+ * `Wed, Aug 12, 2026 @ 6:29:54 AM GMT`
+ *
+ * @param {Date} [date]
+ */
+export function formatAdminConsoleTimestamp(date = new Date()) {
+  const dt = date instanceof Date ? date : new Date(date);
+  if (Number.isNaN(dt.getTime())) return String(date ?? '');
+
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'UTC',
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true,
+    }).formatToParts(dt);
+
+    const map = {};
+    for (const part of parts) {
+      if (part.type !== 'literal') map[part.type] = part.value;
+    }
+
+    return (
+      `${map.weekday || ''}, ${map.month || ''} ${map.day || ''}, ${map.year || ''} @ ` +
+      `${map.hour || ''}:${map.minute || '00'}:${map.second || '00'} ${map.dayPeriod || ''} GMT`
+    )
+      .replace(/\s+/g, ' ')
+      .trim();
+  } catch {
+    return formatTimestamp(dt);
+  }
+}
+
+/**
+ * Parse Commander device `date` (UTC wall time without zone) or epoch ms.
+ * @param {unknown} value
+ * @returns {Date|null}
+ */
+export function parseCommanderUtcDate(value) {
+  if (value == null || value === '') return null;
+
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    const ms = value > 1e12 ? value : value * 1000;
+    const dt = new Date(ms);
+    return Number.isNaN(dt.getTime()) ? null : dt;
+  }
+
+  const raw = String(value).trim();
+
+  // Commander table/json: "2026-08-12 06:29:54" (UTC via gmtime)
+  let match = raw.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})$/);
+  if (match) {
+    const dt = new Date(
+      Date.UTC(
+        Number(match[1]),
+        Number(match[2]) - 1,
+        Number(match[3]),
+        Number(match[4]),
+        Number(match[5]),
+        Number(match[6]),
+      ),
+    );
+    return Number.isNaN(dt.getTime()) ? null : dt;
+  }
+
+  // Compact HHMMSS: "2026-08-12 062448"
+  match = raw.match(/^(\d{4})-(\d{2})-(\d{2})[ T]?(\d{2})(\d{2})(\d{2})$/);
+  if (match) {
+    const dt = new Date(
+      Date.UTC(
+        Number(match[1]),
+        Number(match[2]) - 1,
+        Number(match[3]),
+        Number(match[4]),
+        Number(match[5]),
+        Number(match[6]),
+      ),
+    );
+    return Number.isNaN(dt.getTime()) ? null : dt;
+  }
+
+  if (/^\d{10,13}$/.test(raw)) {
+    const n = Number(raw);
+    const ms = n > 1e12 ? n : n * 1000;
+    const dt = new Date(ms);
+    return Number.isNaN(dt.getTime()) ? null : dt;
+  }
+
+  try {
+    const dt = new Date(raw.replace('Z', '+00:00'));
+    return Number.isNaN(dt.getTime()) ? null : dt;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Convert Commander seconds into expire/timeout flags.
  * Valid units (Keeper): years/y, months/mo, days/d, hours/h, minutes/mi.
  * @param {number|null} seconds
@@ -244,7 +346,7 @@ export function secondsToExpireFlag(seconds) {
   if (seconds == null) return null;
   if (seconds % (24 * 60 * 60) === 0) return `${seconds / (24 * 60 * 60)}d`;
   if (seconds % (60 * 60) === 0) return `${seconds / (60 * 60)}h`;
-  // Minutes must be "mi" — "m" is rejected ("m is not allowed as a unit")
+ // Minutes must be "mi" — "m" is rejected ("m is not allowed as a unit")
   if (seconds % 60 === 0) return `${seconds / 60}mi`;
   return `${seconds}s`;
 }

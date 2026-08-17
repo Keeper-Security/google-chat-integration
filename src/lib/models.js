@@ -1,5 +1,5 @@
 /**
- * Shared enums and data models for approval workflow (Slack parity).
+ * Shared enums and data models for approval workflow.
  */
 
 export const RequestType = Object.freeze({
@@ -9,13 +9,13 @@ export const RequestType = Object.freeze({
 });
 
 export const PermissionLevel = Object.freeze({
-  // Record permissions
+ // Record permissions
   VIEW_ONLY: 'view_only',
   CAN_EDIT: 'can_edit',
   CAN_SHARE: 'can_share',
   EDIT_AND_SHARE: 'edit_and_share',
   CHANGE_OWNER: 'change_owner',
-  // Classic folder permissions
+ // Classic folder permissions
   NO_PERMISSIONS: 'no_permissions',
   MANAGE_USERS: 'manage_users',
   MANAGE_RECORDS: 'manage_records',
@@ -45,7 +45,7 @@ export const PERMANENT_ONLY_FOLDER_PERMISSIONS = new Set([
 ]);
 
 /**
- * NSF roles that cannot be time-limited (Slack parity).
+ * NSF roles that cannot be time-limited 
  * Only Transfer Ownership is permanent-only; Share Manager / Full Manager
  * honor --expire-in the same as Viewer / Content Manager.
  */
@@ -54,7 +54,7 @@ export const PERMANENT_ONLY_NSF_ROLES = new Set([
 ]);
 
 /**
- * Whether the selected permission ignores duration (Slack parity).
+ * Whether the selected permission ignores duration 
  * @param {string} permission
  * @param {{ forFolder?: boolean, isNsf?: boolean, forOneTimeShare?: boolean }} [options]
  */
@@ -81,7 +81,7 @@ export function isFolderItemType(itemType) {
 const NSF_VALUE_SUFFIX = '|nsf';
 
 /**
- * Encode search selection value with NSF flag + type (Slack parity).
+ * Encode search selection value with NSF flag + type 
  * Format: `uid|nsf|pamUser` or `uid|classic|login` or `uid|classic|shared_folder`
  * @param {string} uid
  * @param {boolean} isNsf
@@ -103,7 +103,7 @@ export function decodeSearchItemValue(value) {
   if (parts.length >= 2 && (parts[1] === 'nsf' || parts[1] === 'classic')) {
     return [parts[0], parts[1] === 'nsf', decodeURIComponent(parts[2] || '')];
   }
-  // Legacy: uid|nsf or bare uid
+ // Legacy: uid|nsf or bare uid
   if (raw.endsWith(NSF_VALUE_SUFFIX)) {
     return [raw.slice(0, -NSF_VALUE_SUFFIX.length), true, ''];
   }
@@ -136,8 +136,8 @@ export function classicPermissionToNsfRole(permission) {
 
 export class ApprovalActionData {
   /**
-   * @param {object} fields
-   */
+ * @param {object} fields
+ */
   constructor({
     approvalId,
     requesterUserName,
@@ -196,7 +196,7 @@ export class ApprovalActionData {
       { key: 'identifier', value: this.identifier },
       { key: 'is_uid', value: String(this.isUid).toLowerCase() },
       { key: 'request_type', value: this.requestType },
-      // Short alias — survives Chat add-on parameter quirks better
+ // Short alias — survives Chat add-on parameter quirks better
       { key: 'rt', value: requestTypeAlias(this.requestType) },
       { key: 'justification', value: this.justification },
       { key: 'duration', value: this.duration },
@@ -278,5 +278,101 @@ export class KeeperFolder {
     this.folderType = folderType || 'shared_folder';
     this.parentUid = parentUid;
     this.isNsf = Boolean(isNsf);
+  }
+}
+
+/**
+ * EPM elevation approval request.
+ */
+export class EpmRequest {
+  /**
+ * @param {object} fields
+ */
+  constructor({
+    approvalUid = '',
+    approvalType = '',
+    status = 'Pending',
+    agentUid = '',
+    username = '',
+    command = '',
+    fileName = '',
+    filePath = '',
+    description = '',
+    justification = '',
+    expireIn = 30,
+    created = '',
+  }) {
+    this.approvalUid = approvalUid;
+    this.approvalType = approvalType;
+    this.status = status;
+    this.agentUid = agentUid;
+    this.username = username;
+    this.command = command;
+    this.fileName = fileName;
+    this.filePath = filePath;
+    this.description = description;
+    this.justification = justification;
+    this.expireIn = Number.isFinite(Number(expireIn)) ? Number(expireIn) : 30;
+    this.created = created;
+  }
+
+  /**
+ * Parse Commander `epm approval list` JSON item.
+ * @param {object} data
+ */
+  static fromDict(data = {}) {
+    let username = '';
+    for (const info of data.account_info || []) {
+      if (String(info).startsWith('Username=')) {
+        username = String(info).split('=', 2)[1] || '';
+        break;
+      }
+    }
+
+    let description = '';
+    let fileName = '';
+    let filePath = '';
+    let command = '';
+    for (const info of data.application_info || []) {
+      const raw = String(info);
+      if (raw.startsWith('Description=')) {
+        description = raw.split('=', 2)[1] || '';
+      } else if (raw.startsWith('FileName=')) {
+        fileName = raw.split('=', 2)[1] || '';
+      } else if (raw.startsWith('FilePath=')) {
+        filePath = raw.split('=', 2)[1] || '';
+      } else if (raw.startsWith('CommandLine=')) {
+        command = raw.split('=', 2)[1] || '';
+      }
+    }
+
+    let justificationText = '';
+    const rawJustification = data.justification || '';
+    if (rawJustification) {
+      try {
+        const parsed = JSON.parse(rawJustification);
+        justificationText =
+          parsed && typeof parsed === 'object'
+            ? String(parsed.text || '')
+            : String(rawJustification);
+      } catch {
+        justificationText = String(rawJustification);
+      }
+    }
+
+    return new EpmRequest({
+      approvalUid: data.approval_uid || '',
+      approvalType: data.approval_type || '',
+      status: data.status || 'Pending',
+      agentUid: data.agent_uid || '',
+      username,
+      command,
+      fileName,
+      filePath,
+      description,
+      justification: justificationText,
+      expireIn: data.expire_in ?? 30,
+      created: data.created || '',
+    });
   }
 }

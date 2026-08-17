@@ -1,5 +1,5 @@
 /**
- * Shared Commander Service Mode error helpers (Slack parity).
+ * Shared Commander Service Mode error helpers 
  */
 
 export const COMMAND_NOT_ALLOWED = 'command_not_allowed';
@@ -62,7 +62,7 @@ export function recordOwnerError(userEmail) {
 }
 
 /**
- * Detect owner-conflict failures from structured codes or Commander text (Slack parity).
+ * Detect owner-conflict failures from structured codes or Commander text 
  * @param {{ error_code?: string, error?: string }|string|null|undefined} resultOrMessage
  */
 export function isRecordOwnerError(resultOrMessage) {
@@ -124,7 +124,7 @@ export function mapGrantError(errorMsg) {
     };
   }
 
-  // Folder: time-limited share cannot be upgraded to manage-users / manage-all.
+ // Folder: time-limited share cannot be upgraded to manage-users / manage-all.
   if (
     errorLower.includes('time-limited access') &&
     (errorLower.includes('manage') ||
@@ -202,7 +202,7 @@ export function mapOneTimeShareError(errorMsg) {
     };
   }
 
-  // Strip noisy "Unexpected error:" prefix when present.
+ // Strip noisy "Unexpected error:" prefix when present.
   const cleaned = raw.replace(/^unexpected error:\s*/i, '').trim() || 'Unknown error';
   return {
     success: false,

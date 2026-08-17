@@ -63,7 +63,7 @@ export async function handleApproveSearchResult(
   const [selectedUid, isNsf, encodedItemType] =
     decodeSearchItemValue(selectedRaw);
 
-  // Safety net: selected item type must match request kind.
+ // Safety net: selected item type must match request kind.
   if (forFolder && encodedItemType && !isFolderItemType(encodedItemType)) {
     await chatClient.sendDm(
       approverName,
@@ -97,7 +97,7 @@ export async function handleApproveSearchResult(
       }
     }
   } catch {
-    // continue with encoded type
+ // continue with encoded type
   }
 
   if (forOts) {
@@ -188,7 +188,7 @@ export async function grantAndNotify(
     'rotate_on_expire',
   );
 
-  // Self-destruct records: always view-only with creation duration (Classic-only).
+ // Self-destruct records: always view-only with creation duration (Classic-only).
   const isSelfDestruct = !forFolder && !forOts && Boolean(actionData.createSelfDestruct);
   if (isSelfDestruct) {
     permissionRaw = PermissionLevel.VIEW_ONLY;
@@ -230,7 +230,7 @@ export async function grantAndNotify(
     durationText = formatDuration(duration);
   }
 
-  // OTS: "permanent" maps to Keeper's 7-day default (null durationSeconds).
+ // OTS: "permanent" maps to Keeper's 7-day default (null durationSeconds).
   if (forOts && durationSeconds == null) {
     durationText = 'Never (7 days default)';
   }
@@ -266,14 +266,14 @@ export async function grantAndNotify(
   if (messageName) {
     await chatClient.patchMessage(messageName, {
       text: forOts
-        ? `Creating one-time share for ${actionData.identifier}…`
+        ? `Creating external share for ${actionData.identifier}…`
         : `Approving access for ${actionData.identifier}…`,
       cardsV2: buildLoadingCard(actionData, {
         title: forOts
-          ? `Creating one-time share for "${actionData.identifier}"…`
+          ? `Creating external share for "${actionData.identifier}"…`
           : `Approving access for "${actionData.identifier}"…`,
         detail: forOts
-          ? 'Please wait while Keeper creates the one-time share link.'
+          ? 'Please wait while Keeper creates the external share link.'
           : forFolder
             ? 'Please wait while Keeper grants folder access.'
             : 'Please wait while Keeper grants record access.',
@@ -380,7 +380,7 @@ export async function grantAndNotify(
   if (forOts) {
     await chatClient.sendDm(
       actionData.requesterUserName,
-      `Your one-time share request ${actionData.approvalId} was approved.`,
+      `Your external share request ${actionData.approvalId} was approved.`,
       buildOneTimeShareDm(
         actionData.approvalId,
         actionData.identifier,
@@ -418,7 +418,7 @@ export async function grantAndNotify(
       forOts,
       rotateOnExpire: extras.rotateOnExpire,
     },
-    forOts ? 'Approved one-time share request' : 'Approved access request',
+    forOts ? 'Approved external share request' : 'Approved access request',
   );
 }
 
@@ -434,7 +434,7 @@ export async function handleDeny(actionData, approverEmail, messageName, chatCli
   await chatClient.sendDm(
     actionData.requesterUserName,
     actionData.isOneTimeShareRequest
-      ? `Your one-time share request ${actionData.approvalId} was denied.`
+      ? `Your external share request ${actionData.approvalId} was denied.`
       : `Your access request ${actionData.approvalId} was denied.`,
     buildAccessDeniedDm(actionData.approvalId, actionData.identifier, {
       forFolder: actionData.isFolderRequest,
@@ -448,7 +448,7 @@ export async function handleDeny(actionData, approverEmail, messageName, chatCli
 }
 
 /**
- * Handle grant failures with Slack-parity owner conflict UX.
+ * Handle grant failures with owner conflict UX.
  */
 export async function handleGrantFailure({
   actionData,

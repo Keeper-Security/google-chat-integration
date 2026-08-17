@@ -3,11 +3,9 @@
 This guide explains how to set up the Google Chat app **as automatically as
 Google allows**, and exactly which steps still have to be done by hand.
 
-## TL;DR — Can this be a one-click paste like Slack?
+## TL;DR — Can Chat app setup be fully automated?
 
-**No — not fully.** Slack lets you paste an **App Manifest (JSON/YAML)** and it
-creates the whole app (bot, scopes, slash commands, event subscriptions) in one
-shot. **Google Chat has no equivalent.** Google provides:
+**Not fully.** Google provides:
 
 - ✅ An API/CLI (`gcloud`) for all the **infrastructure** (project, APIs,
   Pub/Sub, service account, IAM).
@@ -132,9 +130,9 @@ BILLING_ACCOUNT_ID=XXXXXX-XXXXXX-XXXXXX \
    - Description: Request access to a Keeper folder
    - Type: **Slash command**
 8. Add a third slash command:
-   - Command ID: `3` (must match `config.yaml → chat.command_one_time_share_id`)
-   - Name: `/keeper-one-time-share`
-   - Description: Create a one-time share link for a Keeper record
+   - Command ID: `3` (must match `config.yaml → chat.command_external_share_id`)
+   - Name: `/keeper-external-share`
+   - Description: Create an external share link for a Keeper record
    - Type: **Slash command**
 9. Add a fourth slash command:
    - Command ID: `4` (must match `config.yaml → chat.command_create_secret_id`)
