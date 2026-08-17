@@ -227,6 +227,98 @@ export function formatPermissionName(permission) {
   return labels[permission] || permission;
 }
 
+/**
+ * Single-line value for audit logs (Slack `_collapse_for_log` parity).
+ * @param {unknown} value
+ * @param {string} [fallback]
+ */
+export function collapseForLog(value, fallback = 'N/A') {
+  if (value == null) return fallback;
+  const text = String(value).split(/\s+/).join(' ').trim();
+  return text || fallback;
+}
+
+/**
+ * Slack-style approval audit line after a successful grant / OTS create.
+ * Example:
+ * `Approval APR-…: Granted record access, (UID: …), for user a@x.com, approved by b@x.com, with View Only permission, for 1 hour`
+ *
+ * @param {{
+ *   approvalId: string,
+ *   requestType: string,
+ *   identifier: string,
+ *   requesterEmail: string,
+ *   approverEmail: string,
+ *   permission: string,
+ *   durationText: string,
+ *   rotateOnExpire?: boolean,
+ *   isPam?: boolean,
+ * }} opts
+ */
+export function formatApprovalAuditLog({
+  approvalId,
+  requestType,
+  identifier,
+  requesterEmail,
+  approverEmail,
+  permission,
+  durationText,
+  rotateOnExpire = false,
+  isPam = false,
+}) {
+  const requestTypeText = collapseForLog(requestType).replace(/_/g, ' ');
+  const action =
+    requestType === 'one_time_share'
+      ? 'Created one-time share'
+      : `Granted ${requestTypeText} access`;
+
+  const details = [
+    `Approval ${collapseForLog(approvalId)}: ${action}`,
+    `(UID: ${collapseForLog(identifier)})`,
+    `for user ${collapseForLog(requesterEmail)}`,
+    `approved by ${collapseForLog(approverEmail)}`,
+    `with ${formatPermissionName(collapseForLog(permission, ''))} permission`,
+    `for ${collapseForLog(durationText)}`,
+  ];
+
+  if (isPam && rotateOnExpire) {
+    details.push('auto-rotate enabled');
+  }
+
+  return details.join(', ');
+}
+
+/**
+ * Slack-style denial audit line.
+ * Example:
+ * `Denied [approval_id=APR-…]: record request (UID: …), requester a@x.com, denied by b@x.com, justification "…"`
+ *
+ * @param {{
+ *   approvalId: string,
+ *   requestType: string,
+ *   identifier: string,
+ *   requesterEmail: string,
+ *   approverEmail: string,
+ *   justification?: string,
+ * }} opts
+ */
+export function formatDenialAuditLog({
+  approvalId,
+  requestType,
+  identifier,
+  requesterEmail,
+  approverEmail,
+  justification = '',
+}) {
+  const requestTypeText = collapseForLog(requestType).replace(/_/g, ' ');
+  const justificationText = collapseForLog(justification, 'No justification provided');
+  return (
+    `Denied [approval_id=${collapseForLog(approvalId)}]: ${requestTypeText} request ` +
+    `(UID: ${collapseForLog(identifier)}), requester ${collapseForLog(requesterEmail)}, ` +
+    `denied by ${collapseForLog(approverEmail)}, justification "${justificationText}"`
+  );
+}
+
 export function formatTimestamp(date = new Date()) {
   const pad = (n) => String(n).padStart(2, '0');
   return (

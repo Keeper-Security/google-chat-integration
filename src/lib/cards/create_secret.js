@@ -2,8 +2,19 @@
  * Create-secret interactive cards.
  */
 
-import { escapeHtmlText, truncateLabel } from './shared.js';
+import { BTN, escapeHtmlText, truncateLabel } from './shared.js';
 import { encodeSearchItemValue } from '../models.js';
+
+const CANCEL_BUTTON = {
+  text: 'Cancel',
+  color: BTN.back,
+  onClick: {
+    action: {
+      function: 'create_secret_cancel',
+      parameters: [{ key: '__action', value: 'create_secret_cancel' }],
+    },
+  },
+};
 
 /**
  * Step 1 — pick a shared folder for /keeper-create-secret.
@@ -57,6 +68,7 @@ export function buildCreateSecretFolderSelectCard(sharedFolders, options = {}) {
               {
                 buttonList: {
                   buttons: [
+                    CANCEL_BUTTON,
                     {
                       text: 'Next',
                       onClick: {
@@ -232,6 +244,7 @@ export function buildCreateSecretRecordFormCard(options) {
       {
         buttonList: {
           buttons: [
+            CANCEL_BUTTON,
             {
               text: 'Create Record',
               onClick: {
@@ -253,6 +266,33 @@ export function buildCreateSecretRecordFormCard(options) {
       card: {
         header: { title: 'Create Secret' },
         sections,
+      },
+    },
+  ];
+}
+
+/**
+ * Cancelled / closed create-secret flow (no interactive controls).
+ */
+export function buildCreateSecretCancelledCard() {
+  return [
+    {
+      cardId: 'create-secret-cancelled',
+      card: {
+        header: { title: 'Create Secret' },
+        sections: [
+          {
+            widgets: [
+              {
+                textParagraph: {
+                  text:
+                    '<b>Create secret cancelled.</b><br><br>' +
+                    'No record was created. Run <code>/keeper-create-secret</code> again to start over.',
+                },
+              },
+            ],
+          },
+        ],
       },
     },
   ];

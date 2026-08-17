@@ -35,10 +35,7 @@ export class EpmPoller {
     this.logger.info('Starting EPM poller (background)...');
     this.running = true;
     this._schedule(0);
-    this.logger.info(
-      { intervalSec: this.intervalSec },
-      'EPM poller started',
-    );
+    this.logger.ok(`EPM poller started (interval: ${this.intervalSec}s)`);
   }
 
   stop() {

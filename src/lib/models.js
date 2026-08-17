@@ -282,6 +282,46 @@ export class KeeperFolder {
 }
 
 /**
+ * Normalize Commander EPM info maps.
+ * Live Commander (`epm approval view` / list) returns objects.
+ * Older payloads used arrays of `Key=Value` strings.
+ * @param {unknown} info
+ * @returns {Record<string, string>}
+ */
+function epmInfoMap(info) {
+  if (!info) return {};
+  if (!Array.isArray(info) && typeof info === 'object') {
+    /** @type {Record<string, string>} */
+    const out = {};
+    for (const [key, value] of Object.entries(info)) {
+      if (value == null) continue;
+      out[key] = String(value);
+    }
+    return out;
+  }
+  if (!Array.isArray(info)) return {};
+  /** @type {Record<string, string>} */
+  const out = {};
+  for (const item of info) {
+    const raw = String(item);
+    const i = raw.indexOf('=');
+    if (i === -1) continue;
+    out[raw.slice(0, i)] = raw.slice(i + 1);
+  }
+  return out;
+}
+
+/**
+ * @param {Record<string, string>} map
+ * @param {string} key
+ */
+function epmInfoValue(map, key) {
+  if (map[key] != null && map[key] !== '') return map[key];
+  const found = Object.keys(map).find((k) => k.toLowerCase() === key.toLowerCase());
+  return found ? map[found] : '';
+}
+
+/**
  * EPM elevation approval request.
  */
 export class EpmRequest {
@@ -317,34 +357,19 @@ export class EpmRequest {
   }
 
   /**
- * Parse Commander `epm approval list` JSON item.
- * @param {object} data
- */
+   * Parse Commander `epm approval list` / `epm approval view` JSON item.
+   * `account_info` and `application_info` may be objects (`{ CommandLine: "..." }`)
+   * or legacy arrays of `Key=Value` strings.
+   * @param {object} data
+   */
   static fromDict(data = {}) {
-    let username = '';
-    for (const info of data.account_info || []) {
-      if (String(info).startsWith('Username=')) {
-        username = String(info).split('=', 2)[1] || '';
-        break;
-      }
-    }
-
-    let description = '';
-    let fileName = '';
-    let filePath = '';
-    let command = '';
-    for (const info of data.application_info || []) {
-      const raw = String(info);
-      if (raw.startsWith('Description=')) {
-        description = raw.split('=', 2)[1] || '';
-      } else if (raw.startsWith('FileName=')) {
-        fileName = raw.split('=', 2)[1] || '';
-      } else if (raw.startsWith('FilePath=')) {
-        filePath = raw.split('=', 2)[1] || '';
-      } else if (raw.startsWith('CommandLine=')) {
-        command = raw.split('=', 2)[1] || '';
-      }
-    }
+    const account = epmInfoMap(data.account_info);
+    const application = epmInfoMap(data.application_info);
+    const username = epmInfoValue(account, 'Username');
+    const description = epmInfoValue(application, 'Description');
+    const fileName = epmInfoValue(application, 'FileName');
+    const filePath = epmInfoValue(application, 'FilePath');
+    const command = epmInfoValue(application, 'CommandLine');
 
     let justificationText = '';
     const rawJustification = data.justification || '';

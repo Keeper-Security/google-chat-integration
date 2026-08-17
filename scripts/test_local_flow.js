@@ -16,14 +16,18 @@ import {
   mergeConfigSections,
 } from '../src/lib/ksm_utils.js';
 import {
+  grantClassicRecordAccess,
   grantNsfFolderAccess,
   grantNsfRecordAccess,
   nsfExpireInFlags,
 } from '../src/lib/keeper/grants.js';
+import { invitationPending } from '../src/lib/commander_helpers.js';
 import { createLogger, getLogger } from '../src/lib/logger.js';
 import { KeeperFolder, KeeperRecord, EpmRequest } from '../src/lib/models.js';
 import {
   formatAdminConsoleTimestamp,
+  formatApprovalAuditLog,
+  formatDenialAuditLog,
   sanitizeHyperlinks,
 } from '../src/lib/utils.js';
 
@@ -478,6 +482,150 @@ async function main() {
   if (nsfExpireInFlags(3600).join(' ') !== '--expire-in 1h') {
     throw new Error(
       `Expected timed NSF flags "--expire-in 1h", got ${nsfExpireInFlags(3600)}`,
+    );
+  }
+
+  console.log('\n=== Slack-style approval audit log format ===');
+  const approveLine = formatApprovalAuditLog({
+    approvalId: 'APR-20260817-abcde',
+    requestType: 'record',
+    identifier: 'kR3cF9Xm2Lp8NqT1uV6w',
+    requesterEmail: 'requester@example.com',
+    approverEmail: 'approver@example.com',
+    permission: 'view_only',
+    durationText: '1 hour',
+  });
+  if (
+    !approveLine.includes('Approval APR-20260817-abcde: Granted record access') ||
+    !approveLine.includes('(UID: kR3cF9Xm2Lp8NqT1uV6w)') ||
+    !approveLine.includes('for user requester@example.com') ||
+    !approveLine.includes('approved by approver@example.com') ||
+    !approveLine.includes('with View Only permission') ||
+    !approveLine.includes('for 1 hour')
+  ) {
+    throw new Error(`Unexpected approval audit log: ${approveLine}`);
+  }
+  const otsLine = formatApprovalAuditLog({
+    approvalId: 'APR-OTS-1',
+    requestType: 'one_time_share',
+    identifier: 'recUid',
+    requesterEmail: 'a@x.com',
+    approverEmail: 'b@x.com',
+    permission: 'can_edit',
+    durationText: '5 minutes',
+  });
+  if (!otsLine.includes('Created one-time share')) {
+    throw new Error(`Expected OTS action text, got: ${otsLine}`);
+  }
+  const pamLine = formatApprovalAuditLog({
+    approvalId: 'APR-PAM-1',
+    requestType: 'record',
+    identifier: 'pamUid',
+    requesterEmail: 'a@x.com',
+    approverEmail: 'b@x.com',
+    permission: 'view_only',
+    durationText: '1 hour',
+    rotateOnExpire: true,
+    isPam: true,
+  });
+  if (!pamLine.includes('auto-rotate enabled')) {
+    throw new Error(`Expected PAM auto-rotate in audit log, got: ${pamLine}`);
+  }
+  const denyLine = formatDenialAuditLog({
+    approvalId: 'APR-DENY-1',
+    requestType: 'folder',
+    identifier: 'folderUid',
+    requesterEmail: 'req@x.com',
+    approverEmail: 'adm@x.com',
+    justification: 'Not needed',
+  });
+  if (
+    !denyLine.includes('Denied [approval_id=APR-DENY-1]: folder request') ||
+    !denyLine.includes('(UID: folderUid)') ||
+    !denyLine.includes('requester req@x.com') ||
+    !denyLine.includes('denied by adm@x.com') ||
+    !denyLine.includes('justification "Not needed"')
+  ) {
+    throw new Error(`Unexpected denial audit log: ${denyLine}`);
+  }
+
+  console.log('\n=== Share invitation responses (classic + NSF) ===');
+  const classicInvite = {
+    command: 'share-record',
+    data: null,
+    message: [
+      "Share invitation has been sent to 'sindoriya@keepersecurity.com'",
+      'Please repeat this command when invitation is accepted.',
+    ],
+    status: 'success',
+  };
+  const nsfInvite = {
+    command: 'nsf-share-record',
+    data: null,
+    message:
+      "nsf-share-record: Share invitation has been sent to 'sindoriya@keepersecurity.com'. Please repeat this command once the invitation is accepted.",
+    status: 'success',
+  };
+  if (!invitationPending(classicInvite)) {
+    throw new Error('Expected classic share-record invitation array message to be detected');
+  }
+  if (!invitationPending(nsfInvite)) {
+    throw new Error('Expected NSF share-record invitation string message to be detected');
+  }
+
+  const classicInviteGrant = [];
+  const classicInviteClient = {
+    async syncDown() {
+      return {};
+    },
+    async getRecordOwner() {
+      return null;
+    },
+    async executeCommandSafe(command) {
+      classicInviteGrant.push(String(command));
+      if (String(command).startsWith('share-record') && String(command).includes('-a revoke')) {
+        return { ok: true, data: { status: 'success' } };
+      }
+      return { ok: true, data: classicInvite };
+    },
+  };
+  const classicResult = await grantClassicRecordAccess(classicInviteClient, {
+    recordUid: 'recUid0123456789012345',
+    userEmail: 'sindoriya@keepersecurity.com',
+    permission: 'view_only',
+    durationSeconds: null,
+  });
+  if (!classicResult.success || !classicResult.invitation_sent) {
+    throw new Error(
+      `Expected classic invitation_sent grant, got ${JSON.stringify(classicResult)}`,
+    );
+  }
+
+  const nsfInviteCmds = [];
+  const nsfInviteClient = {
+    async syncDown() {
+      return {};
+    },
+    async getRecordOwner() {
+      return null;
+    },
+    async executeCommandSafe(command) {
+      nsfInviteCmds.push(String(command));
+      if (String(command).includes('-a revoke')) {
+        return { ok: true, data: { status: 'success' } };
+      }
+      return { ok: true, data: nsfInvite };
+    },
+  };
+  const nsfResult = await grantNsfRecordAccess(nsfInviteClient, {
+    recordUid: 'A2hu6zXfLiYDYjW8fUloBw',
+    userEmail: 'sindoriya@keepersecurity.com',
+    role: 'viewer',
+    durationSeconds: 3600,
+  });
+  if (!nsfResult.success || !nsfResult.invitation_sent) {
+    throw new Error(
+      `Expected NSF invitation_sent grant, got ${JSON.stringify(nsfResult)}`,
     );
   }
 
@@ -1412,6 +1560,38 @@ async function main() {
     throw new Error('create-secret folder card should not route to bot DM');
   }
 
+  const folderButtons =
+    folderSelect.message?.cardsV2?.[0]?.card?.sections
+      ?.flatMap((s) => s.widgets || [])
+      ?.find((w) => w.buttonList)?.buttonList?.buttons || [];
+  if (!folderButtons.some((b) => b.text === 'Cancel')) {
+    throw new Error('Expected Cancel button on create-secret folder card');
+  }
+
+  console.log('\nStep 18b: cancel create-secret from folder select');
+  await appSecret.handleEvent({
+    type: 'CARD_CLICKED',
+    user: {
+      name: 'users/requester',
+      email: 'requester@example.com',
+      displayName: 'Requester User',
+    },
+    space: { name: 'spaces/REQUESTER_DM' },
+    message: {
+      name: 'spaces/REQUESTER_DM/messages/MSG_CREATE_SECRET_CANCEL',
+    },
+    action: {
+      actionMethodName: 'create_secret_cancel',
+      parameters: [{ key: '__action', value: 'create_secret_cancel' }],
+    },
+  });
+  const cancelledPatch = mockChatSecret.patches.find(
+    (p) => p.message?.cardsV2?.[0]?.cardId === 'create-secret-cancelled',
+  );
+  if (!cancelledPatch) {
+    throw new Error('Expected create-secret cancelled card after Cancel');
+  }
+
   console.log('\nStep 19: select shared folder → form');
   await appSecret.handleEvent({
     type: 'CARD_CLICKED',
@@ -1444,6 +1624,14 @@ async function main() {
   );
   if (!formPatch) {
     throw new Error('Expected create-secret form card patch');
+  }
+
+  const formButtons =
+    formPatch.message?.cardsV2?.[0]?.card?.sections
+      ?.flatMap((s) => s.widgets || [])
+      ?.find((w) => w.buttonList)?.buttonList?.buttons || [];
+  if (!formButtons.some((b) => b.text === 'Cancel')) {
+    throw new Error('Expected Cancel button on create-secret form card');
   }
 
   console.log('\nStep 20: submit create secret (classic + subfolder)');
@@ -1555,6 +1743,56 @@ async function main() {
   const parsed = EpmRequest.fromDict(mockKeeperEpm.pendingEpmRequests[0]);
   if (parsed.username !== 'alice.admin' || parsed.fileName !== 'msiexec.exe') {
     throw new Error('EpmRequest.fromDict failed to parse account/application_info');
+  }
+
+  console.log('\nStep 22b: Commander object-shaped application_info keeps full command');
+  const objectShaped = EpmRequest.fromDict({
+    approval_uid: 'IUdxTHT2OEq1Fhw3gamBrw',
+    approval_type: 'CommandLine',
+    status: 'Escalated',
+    agent_uid: 'VYgBAKwbHLFNzj_bhJzZbQ',
+    account_info: { Username: 'sachin' },
+    application_info: {
+      FileName: 'sudo',
+      Description: 'sudo',
+      FilePath: '/usr/bin',
+      CommandLine: '/bin/mkdir google-dir-main2',
+      PolicyRequestUid: 'IUdxTHT2OEq1Fhw3gamBrw',
+    },
+    justification: '{"text":"test","timestamp":"2026-08-12T09:20:25.9866440\\u002B00:00"}',
+    expire_in: 270,
+    created: '2026-08-12T14:50:26',
+  });
+  if (objectShaped.username !== 'sachin') {
+    throw new Error(`Expected username sachin, got ${objectShaped.username}`);
+  }
+  if (objectShaped.command !== '/bin/mkdir google-dir-main2') {
+    throw new Error(
+      `Expected full CommandLine, got ${JSON.stringify(objectShaped.command)}`,
+    );
+  }
+  if (objectShaped.fileName !== 'sudo' || objectShaped.filePath !== '/usr/bin') {
+    throw new Error('Expected FileName/FilePath from object application_info');
+  }
+  const objectCard = JSON.stringify(buildEpmApprovalCard(objectShaped));
+  if (!objectCard.includes('/bin/mkdir google-dir-main2')) {
+    throw new Error('EPM card dropped the rest of the directory name from Command');
+  }
+  if (objectCard.includes('/bin/mkdir google-') && !objectCard.includes('google-dir-main2')) {
+    throw new Error('EPM card truncated CommandLine at google-');
+  }
+  const equalsCommand = EpmRequest.fromDict({
+    approval_uid: 'epmEqualsCmdUid012345678',
+    approval_type: 'CommandLine',
+    account_info: { Username: 'ops' },
+    application_info: {
+      CommandLine: '/usr/bin/env FOO=bar google-dir-main',
+    },
+  });
+  if (equalsCommand.command !== '/usr/bin/env FOO=bar google-dir-main') {
+    throw new Error(
+      `Expected CommandLine with '=', got ${JSON.stringify(equalsCommand.command)}`,
+    );
   }
   if (!parsed.justification.includes('Need to install patch')) {
     throw new Error('Expected justification text extracted from JSON');
