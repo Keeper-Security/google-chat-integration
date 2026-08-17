@@ -12,7 +12,7 @@ Visibility is permanent: choose **Private** only (do not choose Public).
 | App integration | **Google Chat app** only |
 | Chat API status | **Live** |
 
-With **Admin Only Install**, a Workspace admin installs once for the domain/OU. End users do **not** install anything themselves (Slack-like workspace install).
+With **Admin Only Install**, a Workspace admin installs once for the domain/OU. End users do **not** install anything themselves.
 
 You must use a **Google Workspace work/school account** (not personal `@gmail.com`).
 

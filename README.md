@@ -65,7 +65,7 @@ Settings live in `config.yaml` (copy from `config.example.yaml`). Place `service
 
 ### Production (KSM)
 
-When `KSM_CONFIG` is set, credentials are loaded from Keeper Secrets Manager (Slack-app parity). KSM overlays any local YAML.
+When `KSM_CONFIG` is set, credentials are loaded from Keeper Secrets Manager. KSM overlays any local YAML.
 
 | Env | Purpose |
 |-----|---------|

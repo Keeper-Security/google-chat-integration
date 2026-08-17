@@ -41,7 +41,7 @@ export class ChatClient {
     space = null,
     preferInPlace = false,
   }) {
-    // Default Slack-ephemeral style: requester-only text/cards go to bot DM.
+    // Default: requester-only text/cards go to bot DM.
     // Exception: preferInPlace (create-secret multi-step UI stays in context).
     if (privateViewer && !preferInPlace) {
       this.logger.debug(

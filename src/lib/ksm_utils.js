@@ -245,7 +245,7 @@ export function mapCommanderRecord(record) {
 
 /**
  * Map GCHAT_RECORD fields → google / chat / epm / device_approval.
- * Vault labels use pedm_* (Slack parity) → app epm section.
+ * Vault labels use pedm_* → app epm section.
  * @param {object} record
  */
 export function mapGchatRecord(record) {
