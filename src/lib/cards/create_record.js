@@ -9,11 +9,11 @@ import { BTN, buildRequestCard } from './shared.js';
  *
  * @param {import('./models.js').ApprovalActionData} actionData
  * @param {{
- *   originalQuery?: string,
- *   useClassic?: boolean,
- *   showExpiration?: boolean,
- *   error?: string|null,
- *   formValues?: Record<string, string|boolean>,
+ * originalQuery?: string,
+ * useClassic?: boolean,
+ * showExpiration?: boolean,
+ * error?: string|null,
+ * formValues?: Record<string, string|boolean>,
  * }} [options]
  */
 export function buildCreateRecordCard(actionData, options = {}) {

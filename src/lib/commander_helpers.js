@@ -45,12 +45,12 @@ export function folderIsNsf(folderType) {
 }
 
 export function folderInvitationPending(resultData) {
-  // share-folder sometimes returns invitation text with http_status 400
+ // share-folder sometimes returns invitation text with http_status 400
   return invitationPending(resultData);
 }
 
 /**
- * Extract one-time share URL from Commander async result (Slack parity).
+ * Extract one-time share URL from Commander async result 
  * @param {object} resultData
  * @returns {string|null}
  */
@@ -84,7 +84,7 @@ export function extractOneTimeShareUrl(resultData) {
 }
 
 /**
- * Quote a value for Commander CLI (same rules as Slack `shlex.quote` for common cases).
+ * Quote a value for Commander CLI (shell-safe quoting for common cases).
  * @param {unknown} value
  */
 export function shellQuote(value) {

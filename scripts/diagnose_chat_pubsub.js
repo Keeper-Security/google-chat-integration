@@ -6,7 +6,7 @@ import { PubSub } from '@google-cloud/pubsub';
 import { loadConfig, validateStartupConfig } from '../src/lib/config.js';
 
 async function main() {
-  const config = loadConfig();
+  const config = await loadConfig();
   validateStartupConfig(config);
 
   const topicPath = `projects/${config.google.projectId}/topics/${config.google.topicId}`;

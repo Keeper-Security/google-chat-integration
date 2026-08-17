@@ -238,7 +238,7 @@ export function permissionAndDurationWidgets({
     {
       textParagraph: {
         text: forOneTimeShare
-          ? '<font color="#666666"><i>Select how long the one-time share link should remain active. ' +
+          ? '<font color="#666666"><i>Select how long the external share link should remain active. ' +
             'View Only or Can Edit only. Permanent maps to a 7-day Keeper default.</i></font>'
           : forFolder
             ? '<font color="#666666"><i>Select how long access should remain active. ' +
@@ -323,8 +323,8 @@ export function fieldWidget(label, value) {
 }
 
 /**
- * Two-column request summary matching Slack Block Kit fields layout.
- * Kept identical across approval / loading / search so card width stays stable.
+ * Two-column request summary for approval / loading / search cards.
+ * Kept identical across those cards so width stays stable.
  *
  * @param {import('./models.js').ApprovalActionData} actionData
  * @param {{ searchedQuery?: string }} [options]
@@ -336,7 +336,7 @@ export function requestSummaryColumns(actionData, options = {}) {
     : actionData.isOneTimeShareRequest
       ? 'Record'
       : 'Record';
-  // Slack posts safe_identifier / safe_justification via sanitize_hyperlinks.
+  // Identifier / justification are sanitized to prevent URL injection.
   const safeIdentifier = sanitizeHyperlinks(actionData.identifier);
   const safeJustification = sanitizeHyperlinks(actionData.justification);
   const leftWidgets = [
@@ -388,7 +388,7 @@ export function buildRequestCard(actionData, bodySections, options = {}) {
   const title =
     options.title ||
     (actionData.isOneTimeShareRequest
-      ? 'One-Time Share Request'
+      ? 'External Share Request'
       : actionData.isFolderRequest
         ? 'Folder Access Request'
         : 'Record Access Request');

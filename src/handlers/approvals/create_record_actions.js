@@ -128,8 +128,8 @@ export async function handleSubmitCreateRecord(
   const originalQuery =
     paramMap.create_original_query || titleRaw || actionData.identifier;
 
-  // Slack command-input sanitization for free-text fields (shell injection).
-  // URL keeps : / so website addresses still work; only strip shell metacharacters.
+ // Command-input sanitization for free-text fields (shell injection).
+ // URL keeps : / so website addresses still work; only strip shell metacharacters.
   const [title, titleOk, titleErr] = sanitizeUserInput(
     titleRaw,
     MAX_IDENTIFIER_LENGTH,

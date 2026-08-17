@@ -82,7 +82,7 @@ export function buildSearchResultsCard(actionData, results, options = {}) {
             text: forFolder
               ? '<b>Search Folders</b>'
               : forOts
-                ? '<b>Search Records (One-Time Share)</b>'
+                ? '<b>Search Records (External Share)</b>'
                 : '<b>Search Records</b>',
           },
         },
@@ -374,7 +374,7 @@ export function buildSearchResultsCard(actionData, results, options = {}) {
     ],
   });
 
-  // Empty search stays compact — shared shell already stabilizes header/summary.
+ // Empty search stays compact — shared shell already stabilizes header/summary.
   return buildRequestCard(actionData, bodySections, {
     searchedQuery: currentQuery,
   });

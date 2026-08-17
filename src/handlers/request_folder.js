@@ -1,5 +1,5 @@
 /**
- * Handle /keeper-request-folder slash command (Slack parity).
+ * Handle /keeper-request-folder slash command 
  */
 
 import { buildApprovalCard } from '../lib/cards/index.js';
@@ -216,7 +216,7 @@ async function handleUidFolderRequest(
     const pam = await keeperClient.isPamUserFolder(identifier);
     if (pam.error?.error_code === 'commander_unauthorized' || pam.error) {
       const statusHint = pam.error?.error || 'Commander rejected the PAM folder check.';
-      // Only block on auth/forbidden-style errors (Slack parity).
+ // Only block on auth/forbidden-style errors 
       if (
         String(statusHint).toLowerCase().includes('401') ||
         String(statusHint).toLowerCase().includes('403') ||

@@ -34,6 +34,10 @@ export function getArgumentText(message = {}) {
   if (text.startsWith('/keeper-request-folder')) {
     return text.slice('/keeper-request-folder'.length).trim();
   }
+  if (text.startsWith('/keeper-external-share')) {
+    return text.slice('/keeper-external-share'.length).trim();
+  }
+  // Legacy alias
   if (text.startsWith('/keeper-one-time-share')) {
     return text.slice('/keeper-one-time-share'.length).trim();
   }
@@ -75,6 +79,8 @@ export function isOneTimeShareCommand(message, configuredCommandId) {
 
   const commandName = getSlashCommandName(message);
   if (
+    commandName === '/keeper-external-share' ||
+    commandName === 'keeper-external-share' ||
     commandName === '/keeper-one-time-share' ||
     commandName === 'keeper-one-time-share'
   ) {
@@ -82,7 +88,10 @@ export function isOneTimeShareCommand(message, configuredCommandId) {
   }
 
   const text = (message.text || '').trim();
-  return text.startsWith('/keeper-one-time-share');
+  return (
+    text.startsWith('/keeper-external-share') ||
+    text.startsWith('/keeper-one-time-share')
+  );
 }
 
 export function isCreateSecretCommand(message, configuredCommandId) {
@@ -117,4 +126,20 @@ export function isCreateSecretCardAction(event) {
 export function isDmSpace(space = {}) {
   const spaceType = String(space.spaceType || space.type || '').toUpperCase();
   return spaceType === 'DM' || spaceType === 'DIRECT_MESSAGE';
+}
+
+/**
+ * True for a 1:1 DM between a human and this Chat app.
+ * Google Chat sets space.singleUserBotDm on those conversations.
+ */
+export function isBotDmSpace(space = {}) {
+  return isDmSpace(space) && space.singleUserBotDm === true;
+}
+
+/**
+ * True for DMs that include another human (peer/group DM).
+ * In those spaces, messages cannot be hidden from other participants.
+ */
+export function isPeerDmSpace(space = {}) {
+  return isDmSpace(space) && space.singleUserBotDm !== true;
 }

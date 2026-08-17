@@ -22,6 +22,21 @@ import {
 } from '../utils.js';
 
 /**
+ * NSF `--expire-in` args. Commander treats a missing flag as "leave existing
+ * expiration unchanged"; Permanent must send `never` to clear it.
+ *
+ * @param {number|null|undefined} durationSeconds
+ * @returns {string[]} e.g. ['--expire-in', 'never'] or ['--expire-in', '1h']
+ */
+export function nsfExpireInFlags(durationSeconds) {
+  if (durationSeconds != null) {
+    const expire = secondsToExpireFlag(durationSeconds);
+    if (expire) return ['--expire-in', expire];
+  }
+  return ['--expire-in', 'never'];
+}
+
+/**
  * Grant access — routes to share-record or nsf-share-record.
  * @param {object} options
  */
@@ -52,7 +67,7 @@ export async function grantRecordAccess(client, {
 }
 
 /**
- * Classic share-record grant (Slack parity).
+ * Classic share-record grant 
  */
 export async function grantClassicRecordAccess(client, {
   recordUid,
@@ -94,7 +109,7 @@ export async function grantClassicRecordAccess(client, {
       10000,
     );
   } catch {
-    // ignore revoke failures
+ // ignore revoke failures
   }
 
   const flags = [];
@@ -204,7 +219,7 @@ export async function grantNsfRecordAccess(client, {
       10000,
     );
   } catch {
-    // ignore
+ // ignore
   }
 
   const parts = [
@@ -220,10 +235,9 @@ export async function grantNsfRecordAccess(client, {
 
   let expiresAtStr = 'Never (Permanent)';
   const permanentOnly = PERMANENT_ONLY_NSF_ROLES.has(nsfRole);
-  if (!permanentOnly && durationSeconds != null) {
-    const expire = secondsToExpireFlag(durationSeconds);
-    if (expire) {
-      parts.push('--expire-in', expire);
+  if (!permanentOnly) {
+    parts.push(...nsfExpireInFlags(durationSeconds));
+    if (durationSeconds != null) {
       expiresAtStr = new Date(Date.now() + durationSeconds * 1000).toISOString();
     }
   }
@@ -442,10 +456,9 @@ export async function grantNsfFolderAccess(client, {
 
   let expiresAtStr = 'Never (Permanent)';
   const permanentOnly = PERMANENT_ONLY_NSF_ROLES.has(nsfRole);
-  if (!permanentOnly && durationSeconds != null) {
-    const expire = secondsToExpireFlag(durationSeconds);
-    if (expire) {
-      parts.push('--expire-in', expire);
+  if (!permanentOnly) {
+    parts.push(...nsfExpireInFlags(durationSeconds));
+    if (durationSeconds != null) {
       expiresAtStr = formatDurationFromSeconds(durationSeconds);
     }
   }

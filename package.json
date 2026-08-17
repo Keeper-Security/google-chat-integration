@@ -24,7 +24,7 @@
   "dependencies": {
     "@google-apps/chat": "^0.20.0",
     "@google-cloud/pubsub": "^4.11.0",
-    "dotenv": "^16.4.7",
+    "@keeper-security/secrets-manager-core": "^17.5.0",
     "google-auth-library": "^10.9.0",
     "js-yaml": "^4.1.0",
     "pino": "^9.6.0"

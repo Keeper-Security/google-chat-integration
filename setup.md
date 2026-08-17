@@ -2,7 +2,7 @@
 
 This guide walks through every step to run the `/keeper-request-record` Google
 Chat app using the **Cloud Pub/Sub** architecture (works behind a firewall, no
-inbound ports, no HTTP endpoint — the Slack Socket Mode equivalent).
+inbound ports, no public HTTP endpoint).
 
 Follow the steps in order.
 
@@ -168,7 +168,7 @@ chat:
   app_name: "Keeper Security"
   command_request_record_id: 1
   command_request_folder_id: 2
-  command_one_time_share_id: 3
+  command_external_share_id: 3
   command_create_secret_id: 4
   approvals_space_id: "spaces/REPLACE_AFTER_STEP_7"
 
@@ -182,7 +182,7 @@ logging:
   pretty: true
 ```
 
-Optionally create `.env` from `.env.example` for path/credential overrides.
+
 
 > Keep `mock_mode: true` for UI testing without a live Keeper Commander.
 
@@ -218,9 +218,9 @@ Go to **APIs & Services → Google Chat API → Configuration**.
    - Description: `Request access to a Keeper folder`
    - Type: **Slash command**
 9. **Commands → Add another command:**
-   - Name: `/keeper-one-time-share`
-   - Command ID: `3` (must match `chat.command_one_time_share_id`)
-   - Description: `Create a one-time share link for a Keeper record`
+   - Name: `/keeper-external-share`
+   - Command ID: `3` (must match `chat.command_external_share_id`)
+   - Description: `Create an external share link for a Keeper record`
    - Type: **Slash command**
 10. **Commands → Add another command:**
    - Name: `/keeper-create-secret`
@@ -270,7 +270,7 @@ INFO: Waiting for Google Chat events...
 ## Step 9 — Test the flow
 
 In a DM with the **Keeper Security** app (or in the approvals space), send a
-**description-based** request (the primary Slack-style flow):
+**description-based** request:
 
 ```text
 /keeper-request-record "AWS test" need staging access

@@ -5,9 +5,21 @@
 
 import { handleCardClicked } from './handlers/approvals/index.js';
 import { handleCreateSecret, handleCreateSecretCardClick } from './handlers/create_secret.js';
+import {
+  handleApproveDevice,
+  handleDenyDevice,
+  isDeviceCardAction,
+} from './handlers/device_approvals.js';
+import {
+  handleApproveEpmRequest,
+  handleDenyEpmRequest,
+  isEpmCardAction,
+} from './handlers/epm_approvals.js';
 import { handleOneTimeShare } from './handlers/one_time_share.js';
 import { handleRequestFolder } from './handlers/request_folder.js';
 import { handleRequestRecord } from './handlers/request_record.js';
+import { DeviceApprovalPoller } from './background/device_poller.js';
+import { EpmPoller } from './background/epm_poller.js';
 import { ChatClient } from './lib/chat_client.js';
 import {
   isCreateSecretCardAction,
@@ -21,19 +33,67 @@ import { getLogger } from './lib/logger.js';
 
 export class KeeperGoogleChatApp {
   /**
-   * @param {ReturnType<import('../lib/config.js').loadConfig>} config
-   * @param {{ chatClient?: ChatClient, keeperClient?: KeeperClient }} [deps]
-   */
+ * @param {ReturnType<import('./lib/config.js').loadConfig>} config
+ * @param {{ chatClient?: ChatClient, keeperClient?: KeeperClient }} [deps]
+ */
   constructor(config, deps = {}) {
     this.config = config;
     this.logger = getLogger();
     this.chatClient = deps.chatClient || new ChatClient(config.google.credentialsFile);
     this.keeperClient = deps.keeperClient || new KeeperClient(config.keeper);
+    this.epmPoller = new EpmPoller({
+      chatClient: this.chatClient,
+      keeperClient: this.keeperClient,
+      config: this.config,
+      intervalSec: this.config.epm?.pollingIntervalInSec ?? 120,
+    });
+    this.devicePoller = new DeviceApprovalPoller({
+      chatClient: this.chatClient,
+      keeperClient: this.keeperClient,
+      config: this.config,
+      intervalSec: this.config.deviceApproval?.pollingIntervalInSec ?? 120,
+    });
+  }
+
+  /** Start background jobs (EPM / device pollers when enabled). */
+  startBackgroundJobs() {
+    if (this.config.epm?.enabled) {
+      try {
+        this.epmPoller.start();
+      } catch (error) {
+        this.logger.warn({ err: error }, 'Could not start EPM poller');
+      }
+    } else {
+      this.logger.info(
+        'EPM polling is disabled (set epm.enabled=true in config to enable)',
+      );
+    }
+
+    if (this.config.deviceApproval?.enabled) {
+      try {
+        this.devicePoller.start();
+      } catch (error) {
+        this.logger.warn(
+          { err: error },
+          'Could not start Cloud SSO Device Approval poller',
+        );
+      }
+    } else {
+      this.logger.info(
+        'Cloud SSO Device Approval polling is disabled (set device_approval.enabled=true in config to enable)',
+      );
+    }
+  }
+
+  /** Stop background jobs on shutdown. */
+  stopBackgroundJobs() {
+    this.epmPoller?.stop();
+    this.devicePoller?.stop();
   }
 
   /**
-   * @param {object} event
-   */
+ * @param {object} event
+ */
   async handleEvent(rawEvent) {
     const event = normalizeEvent(rawEvent);
     const eventType = event.type || '';
@@ -52,6 +112,30 @@ export class KeeperGoogleChatApp {
             this.chatClient,
             this.keeperClient,
           );
+          return;
+        }
+        if (isEpmCardAction(event)) {
+          const method =
+            event.action?.actionMethodName ||
+            event.action?.parameters?.find((p) => p.key === '__action')?.value ||
+            '';
+          if (method === 'deny_epm_request') {
+            await handleDenyEpmRequest(event, this.chatClient, this.keeperClient);
+          } else {
+            await handleApproveEpmRequest(event, this.chatClient, this.keeperClient);
+          }
+          return;
+        }
+        if (isDeviceCardAction(event)) {
+          const method =
+            event.action?.actionMethodName ||
+            event.action?.parameters?.find((p) => p.key === '__action')?.value ||
+            '';
+          if (method === 'deny_device') {
+            await handleDenyDevice(event, this.chatClient, this.keeperClient);
+          } else {
+            await handleApproveDevice(event, this.chatClient, this.keeperClient);
+          }
           return;
         }
         await handleCardClicked(event, this.chatClient, this.keeperClient);
@@ -108,14 +192,14 @@ export class KeeperGoogleChatApp {
           '`/keeper-request-record <record-name-or-uid> <justification>`\n\n' +
           'Request folder access:\n' +
           '`/keeper-request-folder <folder-name-or-uid> <justification>`\n\n' +
-          'Create a one-time share link:\n' +
-          '`/keeper-one-time-share <record-name-or-uid> <justification>`\n\n' +
-          'Create a secret in a shared folder:\n' +
+          'Create an external share link:\n' +
+          '`/keeper-external-share <record-name-or-uid> <justification>`\n\n' +
+          'Create a secret in a shared folder (bot DM or a space — not a DM with another person):\n' +
           '`/keeper-create-secret`\n\n' +
           'Examples:\n' +
           '`/keeper-request-record "AWS Production DB" Need access for deployment`\n' +
           '`/keeper-request-folder "Engineering Creds" Project onboarding`\n' +
-          '`/keeper-one-time-share "AWS Production DB" Need temporary share link`',
+          '`/keeper-external-share "AWS Production DB" Need temporary share link`',
       },
     });
   }
@@ -180,7 +264,7 @@ export function normalizeEvent(event) {
     const payload = chat.buttonClickedPayload || {};
     const parametersMap = { ...(commonEvent.parameters || {}) };
 
-    // Some Chat clients also send parameters on the action object.
+ // Some Chat clients also send parameters on the action object.
     const actionParams = payload.action?.parameters;
     if (Array.isArray(actionParams)) {
       for (const entry of actionParams) {

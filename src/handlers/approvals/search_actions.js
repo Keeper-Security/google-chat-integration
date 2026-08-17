@@ -95,7 +95,7 @@ export async function handleSearchRecords(
 
 /**
  * Rebuild search card when the selected radio changes so NSF permissions
- * and PAM rotate options match the selected record (Slack parity).
+ * and PAM rotate options match the selected record 
  */
 export async function handleUpdateSearchSelection(
   actionData,
@@ -168,7 +168,7 @@ export async function handleUpdateSearchSelection(
 
 /**
  * Rebuild approval/search card when permission changes so permanent-only
- * roles hide the duration dropdown (Slack parity).
+ * roles hide the duration dropdown 
  */
 export async function handleUpdatePermissionSelection(
   actionData,
@@ -205,7 +205,7 @@ export async function handleUpdatePermissionSelection(
     return;
   }
 
-  // UID approval card — rebuild in place with selected permission.
+ // UID approval card — rebuild in place with selected permission.
   let item = null;
   if (actionData.isUid) {
     try {
@@ -216,7 +216,7 @@ export async function handleUpdatePermissionSelection(
         item = await keeperClient.getRecordByUid(actionData.identifier);
       }
     } catch {
-      // continue without details
+ // continue without details
     }
   }
 
@@ -229,7 +229,7 @@ export async function handleUpdatePermissionSelection(
     const label = actionData.isFolderRequest
       ? 'Folder'
       : actionData.isOneTimeShareRequest
-        ? 'One-Time Share'
+        ? 'External Share'
         : 'Record';
     await chatClient.patchMessage(messageName, {
       text: `${label} request ${actionData.approvalId}`,
@@ -242,7 +242,7 @@ export async function handleUpdatePermissionSelection(
 }
 
 /**
- * Re-sync Keeper vault then re-run the current search term (Slack parity).
+ * Re-sync Keeper vault then re-run the current search term 
  */
 export async function handleResyncVault(
   actionData,
@@ -341,7 +341,7 @@ export async function handleResyncVault(
 
 /**
  * Refine search: approver typed a new query in the text input and clicked
- * "Refine Search". Re-search with the new term (Slack parity).
+ * "Refine Search". Re-search with the new term 
  * The original requester's identifier is preserved for "Back" navigation.
  */
 export async function handleRefineSearch(

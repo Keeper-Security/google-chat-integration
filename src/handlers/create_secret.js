@@ -1,5 +1,5 @@
 /**
- * Handle /keeper-create-secret (Slack parity — direct create, not an approval request).
+ * Handle /keeper-create-secret (— direct create, not an approval request).
  */
 
 import {
@@ -8,6 +8,7 @@ import {
   buildCreateSecretRecordFormCard,
   buildCreateSecretSuccessCard,
 } from '../lib/cards/index.js';
+import { isPeerDmSpace } from '../lib/event_utils.js';
 import { getLogger } from '../lib/logger.js';
 import { decodeSearchItemValue } from '../lib/models.js';
 import { sanitizeCommandInput } from '../lib/utils.js';
@@ -27,6 +28,27 @@ export async function handleCreateSecret(event, config, chatClient, keeperClient
   const requesterEmail = user.email || '';
   const requesterUserName = user.name || '';
   const requesterDisplay = user.displayName || requesterEmail;
+
+  // Peer DMs cannot hide messages from the other person; block the interactive
+  // create-secret UI there. Spaces (privateMessageViewer) and bot 1:1 DMs are OK.
+  if (isPeerDmSpace(space)) {
+    logger.info(
+      { space: space.name, email: requesterEmail || null },
+      'Rejected create-secret in peer DM',
+    );
+    await chatClient.postMessage({
+      parent: space.name,
+      message: {
+        text:
+          'For privacy, `/keeper-create-secret` cannot be used in a DM with another person.\n\n' +
+          'Message the Keeper bot directly, or run the command in a space.',
+      },
+      threadName: message.thread?.name || null,
+      privateViewer: requesterUserName || null,
+      space,
+    });
+    return;
+  }
 
   if (!requesterEmail) {
     await replyPrivate(
@@ -71,6 +93,7 @@ export async function handleCreateSecret(event, config, chatClient, keeperClient
       threadName: message.thread?.name || null,
       privateViewer: requesterUserName,
       space,
+      preferInPlace: true,
     });
 
     logger.info(
@@ -233,7 +256,7 @@ async function handleSubmit(event, config, chatClient, keeperClient) {
   const login = sanitizeCommandInput(rawLogin);
   const url = sanitizeCommandInput(rawUrl);
   const notes = sanitizeCommandInput(rawNotes);
-  // Passwords keep special characters; only shell-quoted at CLI build time.
+ // Passwords keep special characters; only shell-quoted at CLI build time.
   const password = rawPassword;
 
   const formValues = {
@@ -433,6 +456,8 @@ async function replyPrivate(chatClient, space, message, viewerName, text) {
     threadName: message.thread?.name || null,
     privateViewer: viewerName,
     space,
+    // Multi-step create-secret UI must stay in the invoking conversation.
+    preferInPlace: true,
   });
 }
 

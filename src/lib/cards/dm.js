@@ -7,7 +7,7 @@ import { BTN, escapeHtmlAttr, escapeHtmlText } from './shared.js';
 import { formatPermissionName } from '../utils.js';
 
 /**
- * Keeper vault deep link for records/folders (Slack parity).
+ * Keeper vault deep link for records/folders 
  * @param {'record'|'folder'} itemType
  * @param {string} uid
  * @param {string} [serverDomain]
@@ -24,7 +24,7 @@ export function getVaultDeepLink(itemType, uid, serverDomain = 'keepersecurity.c
 }
 
 /**
- * Requester DM after access is granted (Slack `send_access_granted_dm` parity).
+ * Requester DM after access is granted 
  * Includes vault deep link: Record/Folder Link → Open in Vault.
  */
 export function buildAccessGrantedDm(approvalId, recordUid, permission, expiresAt, extras = {}) {
@@ -89,7 +89,7 @@ export function buildAccessGrantedDm(approvalId, recordUid, permission, expiresA
 }
 
 /**
- * DM card with the one-time share URL after approval (Slack parity).
+ * DM card with the one-time share URL after approval 
  * URL is an HTML hyperlink plus an Open Link button (opens in a new tab).
  */
 export function buildOneTimeShareDm(approvalId, recordUid, permission, expiresAt, shareUrl) {
@@ -134,7 +134,7 @@ export function buildOneTimeShareDm(approvalId, recordUid, permission, expiresAt
     {
       cardId: `ots-${approvalId}`,
       card: {
-        header: { title: 'One-Time Share Link Ready' },
+        header: { title: 'External Share Link Ready' },
         sections: [{ widgets }],
       },
     },
@@ -142,7 +142,7 @@ export function buildOneTimeShareDm(approvalId, recordUid, permission, expiresAt
 }
 
 /**
- * Requester DM after denial (Slack `send_access_denied_dm` parity).
+ * Requester DM after denial 
  */
 export function buildAccessDeniedDm(approvalId, recordUid, extras = {}) {
   const forFolder = Boolean(extras.forFolder);

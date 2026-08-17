@@ -4,8 +4,8 @@
  * Requires the Chat app to be configured as a Chat API interaction-events app
  * (NOT a Workspace add-on) with a Cloud Pub/Sub connection. In that mode,
  * Google Chat delivers MESSAGE, ADDED_TO_SPACE, and CARD_CLICKED (button)
- * events to the Pub/Sub topic, so card interactions work without an HTTP
- * endpoint — the Slack Socket Mode equivalent.
+ * events to the Pub/Sub topic, so card interactions work without a public
+ * HTTP endpoint.
  */
 
 import { PubSub } from '@google-cloud/pubsub';
@@ -33,15 +33,20 @@ function printBanner(ok, title, detail = '') {
 }
 
 async function main() {
-  const config = loadConfig();
   createLogger();
   const logger = getLogger();
+
+  const config = await loadConfig();
 
   try {
     validateStartupConfig(config);
   } catch (error) {
     logger.error({ err: error }, 'Invalid startup configuration');
     process.exit(1);
+  }
+
+  if (config.ksmLoaded) {
+    logger.info('Configuration loaded from KSM (overlays local YAML if present)');
   }
 
   process.env.GOOGLE_APPLICATION_CREDENTIALS = config.google.credentialsFile;
@@ -63,7 +68,7 @@ async function main() {
 
   if (healthy) {
     printBanner(true, 'KEEPER SERVICE MODE ACCESSIBLE', config.keeper.serviceUrl);
-    // Resolve vault host via Commander `server` (Slack parity) for deep links.
+ // Resolve vault host via Commander `server` for deep links.
     const serverDomain = await app.keeperClient.getServerDomain();
     if (app.keeperClient._serverDomainFromCommander) {
       logger.info({ serverDomain }, 'Keeper server domain ready (from Commander)');
@@ -88,6 +93,24 @@ async function main() {
     );
   }
 
+  const epmStatus = config.epm?.enabled ? 'enabled' : 'disabled';
+  logger.info(
+    {
+      epm: epmStatus,
+      intervalSec: config.epm?.pollingIntervalInSec ?? 120,
+    },
+    'EPM poller configuration',
+  );
+  const deviceStatus = config.deviceApproval?.enabled ? 'enabled' : 'disabled';
+  logger.info(
+    {
+      deviceApproval: deviceStatus,
+      intervalSec: config.deviceApproval?.pollingIntervalInSec ?? 120,
+    },
+    'Cloud SSO Device Approval poller configuration',
+  );
+  app.startBackgroundJobs();
+
   let stopping = false;
 
   const shutdown = async (signal) => {
@@ -95,6 +118,7 @@ async function main() {
     stopping = true;
     logger.info({ signal }, 'Shutting down');
     try {
+      app.stopBackgroundJobs();
       await subscription.close();
     } catch (error) {
       logger.warn({ err: error }, 'Error closing subscription');

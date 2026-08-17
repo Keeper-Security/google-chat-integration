@@ -82,12 +82,12 @@ export function buildCreateSecretFolderSelectCard(sharedFolders, options = {}) {
 /**
  * Step 2 — record details form for /keeper-create-secret.
  * @param {{
- *   folderName: string,
- *   folderUid: string,
- *   parentIsNsf?: boolean,
- *   subfolders?: Array<{ uid: string, name: string, path?: string, is_nsf?: boolean }>|null,
- *   error?: string|null,
- *   formValues?: object,
+ * folderName: string,
+ * folderUid: string,
+ * parentIsNsf?: boolean,
+ * subfolders?: Array<{ uid: string, name: string, path?: string, is_nsf?: boolean }>|null,
+ * error?: string|null,
+ * formValues?: object,
  * }} options
  */
 export function buildCreateSecretRecordFormCard(options) {

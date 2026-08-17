@@ -8,10 +8,25 @@ chat:
   app_name: "Keeper Security"
   command_request_record_id: 1
   command_request_folder_id: 2
-  command_one_time_share_id: 3
+  command_external_share_id: 3
   command_create_secret_id: 4
   approvals_space_id: "spaces/REPLACE_ME"
 
 keeper:
   service_url: "http://localhost:8900/api/v2/"
   api_key: ""
+
+# Endpoint Privilege Manager (EPM) elevation approvals
+# In KSM GCHAT_RECORD these are stored as pedm_enabled / pedm_polling_interval
+epm:
+  enabled: false
+  polling_interval_in_sec: 120
+
+# Cloud SSO device approvals
+device_approval:
+  enabled: false
+  polling_interval_in_sec: 120
+
+# Production (Docker) uses KSM instead of this file:
+#   KSM_CONFIG, COMMANDER_RECORD, GCHAT_RECORD
+# See README → Configuration → Production (KSM)

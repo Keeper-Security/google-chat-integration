@@ -1,6 +1,6 @@
 /**
  * Handle /keeper-request-record slash command.
- * Supports UID-based and description-based (search) requests â€” Slack parity.
+ * Supports UID-based and description-based (search) requests â€
  */
 
 import { buildApprovalCard } from '../lib/cards/index.js';
@@ -221,7 +221,7 @@ async function handleUidRequest(
     recordType: record.recordType || '',
   });
 
-  // Slack parity: confirm to requester immediately, then notify approvers
+ // confirm to requester immediately, then notify approvers
   await replyPrivate(
     chatClient,
     space,
@@ -286,7 +286,7 @@ async function handleDescriptionRequest(
     justification,
   });
 
-  // Slack parity: confirm to requester immediately, then notify approvers
+ // confirm to requester immediately, then notify approvers
   await replyPrivate(
     chatClient,
     space,

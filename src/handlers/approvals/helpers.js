@@ -161,14 +161,14 @@ export async function restoreApprovalCard(
         item = await keeperClient.getRecordByUid(actionData.identifier);
       }
     } catch {
-      // continue without details
+ // continue without details
     }
   }
 
   const label = actionData.isFolderRequest
     ? 'Folder'
     : actionData.isOneTimeShareRequest
-      ? 'One-Time Share'
+      ? 'External Share'
       : 'Record';
   const error = options.error ? String(options.error).trim() : '';
   if (messageName) {

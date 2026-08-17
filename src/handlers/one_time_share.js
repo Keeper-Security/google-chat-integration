@@ -1,5 +1,5 @@
 /**
- * Handle /keeper-one-time-share slash command (Slack parity).
+ * Handle /keeper-external-share slash command 
  */
 
 import { buildApprovalCard } from '../lib/cards/index.js';
@@ -38,9 +38,9 @@ export async function handleOneTimeShare(event, config, chatClient, keeperClient
       space,
       message,
       requesterUserName,
-      'Usage: `/keeper-one-time-share <record-name-or-uid> <justification>`\n' +
-        'Example: `/keeper-one-time-share "AWS Production DB" Need temporary share link`\n' +
-        'Example: `/keeper-one-time-share kR3cF9Xm2Lp8NqT1uV6w Need temporary share link`',
+      'Usage: `/keeper-external-share <record-name-or-uid> <justification>`\n' +
+        'Example: `/keeper-external-share "AWS Production DB" Need temporary share link`\n' +
+        'Example: `/keeper-external-share kR3cF9Xm2Lp8NqT1uV6w Need temporary share link`',
     );
     return;
   }
@@ -62,7 +62,7 @@ export async function handleOneTimeShare(event, config, chatClient, keeperClient
       space,
       message,
       requesterUserName,
-      `Justification is required.\n\nUsage: \`/keeper-one-time-share "${rawIdentifier}" Your justification here\``,
+      `Justification is required.\n\nUsage: \`/keeper-external-share "${rawIdentifier}" Your justification here\``,
     );
     return;
   }
@@ -239,18 +239,18 @@ async function handleUidOneTimeShare(
     space,
     message,
     requesterUserName,
-    'One-Time Share request submitted.\n\n' +
+    'External Share request submitted.\n\n' +
       `Request ID: \`${approvalId}\`\n` +
       `Record: \`${identifier}\`\n` +
       `Justification: ${justification}\n\n` +
-      'Approvers have been notified. Once approved, the one-time share link will be sent to you via DM.',
+      'Approvers have been notified. Once approved, the external share link will be sent to you via DM.',
   );
 
   try {
     await chatClient.postMessage({
       parent: config.chat.approvalsSpaceId,
       message: {
-        text: `One-Time Share request ${approvalId}`,
+        text: `External Share request ${approvalId}`,
         cardsV2: buildApprovalCard(actionData, record),
       },
     });
@@ -269,7 +269,7 @@ async function handleUidOneTimeShare(
 
   logger.info(
     { approvalId, identifier, recordType: record.recordType },
-    'Created UID-based one-time share approval request',
+    'Created UID-based external share approval request',
   );
 }
 
@@ -303,19 +303,19 @@ async function handleDescriptionOneTimeShare(
     space,
     message,
     requesterUserName,
-    'One-Time Share request submitted.\n\n' +
+    'External Share request submitted.\n\n' +
       `Request ID: \`${approvalId}\`\n` +
       `Search term: \`${identifier}\`\n` +
       `Justification: ${justification}\n\n` +
       'An approver will search and select the correct record.\n' +
-      'Once approved, the one-time share link will be sent to you via DM.',
+      'Once approved, the external share link will be sent to you via DM.',
   );
 
   try {
     await chatClient.postMessage({
       parent: config.chat.approvalsSpaceId,
       message: {
-        text: `One-Time Share request ${approvalId}`,
+        text: `External Share request ${approvalId}`,
         cardsV2: buildApprovalCard(actionData, null),
       },
     });
@@ -334,7 +334,7 @@ async function handleDescriptionOneTimeShare(
 
   logger.info(
     { approvalId, identifier, isUid: false },
-    'Created description-based one-time share approval request',
+    'Created description-based external share approval request',
   );
 }
 
