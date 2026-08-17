@@ -3,6 +3,7 @@
  */
 
 import {
+  buildCreateSecretCancelledCard,
   buildCreateSecretFolderSelectCard,
   buildCreateSecretNotificationCard,
   buildCreateSecretRecordFormCard,
@@ -140,8 +141,31 @@ export async function handleCreateSecretCardClick(
     await handleSubmit(event, config, chatClient, keeperClient);
     return;
   }
+  if (method === 'create_secret_cancel') {
+    await handleCancel(event, chatClient);
+    return;
+  }
 
   getLogger().debug({ method }, 'Unhandled create-secret card action');
+}
+
+/**
+ * Close the create-secret card (folder select or form).
+ * @param {object} event
+ * @param {import('../lib/chat_client.js').ChatClient} chatClient
+ */
+async function handleCancel(event, chatClient) {
+  const messageName = event.message?.name;
+  await patchCard(
+    chatClient,
+    messageName,
+    buildCreateSecretCancelledCard(),
+    'Create secret cancelled.',
+  );
+  getLogger().info(
+    { email: event.user?.email, messageName },
+    'Create-secret cancelled by user',
+  );
 }
 
 /**
@@ -406,15 +430,9 @@ async function handleSubmit(event, config, chatClient, keeperClient) {
         }
       }
 
-      logger.info(
-        {
-          title,
-          recordUid,
-          folder: folderPath,
-          isNsf: targetIsNsf,
-          email: event.user?.email,
-        },
-        'Create-secret record created',
+      const createdBy = event.user?.email || event.user?.name || 'unknown';
+      logger.ok(
+        `Record '${title}' (${recordUid}) created by ${createdBy} in ${folderPath}`,
       );
       return;
     }

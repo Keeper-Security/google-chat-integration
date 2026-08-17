@@ -108,27 +108,23 @@ export class KeeperClient {
     }
   }
 
-  /** Service root URL (health is not under /api/v2/). */
-  get serviceRootUrl() {
-    return this.baseUrl.replace(/api\/v2\/?$/, '');
-  }
-
   headers() {
     const headers = { 'Content-Type': 'application/json' };
     if (this.apiKey) headers['api-key'] = this.apiKey;
     return headers;
   }
 
-  /** GET /health → {"status":"ok"}. */
+  /**
+   * Slack parity: GET /api/v2/queue/status (requires valid API key).
+   * Unlike /health, 401/403 means bad credentials → not "accessible".
+   */
   async healthCheck() {
     try {
-      const response = await fetch(`${this.serviceRootUrl}health`, {
+      const response = await fetch(`${this.baseUrl}queue/status`, {
         method: 'GET',
         headers: this.headers(),
       });
-      if (!response.ok) return false;
-      const body = await response.json().catch(() => ({}));
-      return body.status === 'ok' || response.ok;
+      return response.status === 200;
     } catch (error) {
       this.logger.warn({ err: error }, 'Keeper health check failed');
       return false;

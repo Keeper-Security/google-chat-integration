@@ -18,7 +18,8 @@ export function invitationPending(resultData) {
   const combined = `${message} ${error}`;
   return (
     combined.includes('invitation has been sent') ||
-    combined.includes('repeat this command when invitation is accepted')
+    combined.includes('repeat this command when invitation is accepted') ||
+    combined.includes('repeat this command once the invitation is accepted')
   );
 }
 

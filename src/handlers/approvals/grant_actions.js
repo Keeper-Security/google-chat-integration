@@ -28,6 +28,8 @@ import {
 } from '../../lib/models.js';
 
 import {
+  formatApprovalAuditLog,
+  formatDenialAuditLog,
   formatDuration,
   isPamRecordType,
   isPamUserRecordType,
@@ -408,17 +410,25 @@ export async function grantAndNotify(
   }
 
   logger.info(
-    {
+    formatApprovalAuditLog({
       approvalId: actionData.approvalId,
-      requester: actionData.requesterEmail,
+      requestType: forOts
+        ? 'one_time_share'
+        : forFolder
+          ? 'folder'
+          : 'record',
       identifier: actionData.identifier,
+      requesterEmail: actionData.requesterEmail,
+      approverEmail,
       permission,
-      isNsf,
-      forFolder,
-      forOts,
+      durationText: result.invitation_sent
+        ? 'Pending Invitation'
+        : durationText,
       rotateOnExpire: extras.rotateOnExpire,
-    },
-    forOts ? 'Approved external share request' : 'Approved access request',
+      isPam: forFolder
+        ? Boolean(actionData.isPamFolder)
+        : isPamUserRecordType(actionData.recordType),
+    }),
   );
 }
 
@@ -444,7 +454,20 @@ export async function handleDeny(actionData, approverEmail, messageName, chatCli
     }),
   );
 
-  logger.info({ approvalId: actionData.approvalId }, 'Denied access request');
+  logger.info(
+    formatDenialAuditLog({
+      approvalId: actionData.approvalId,
+      requestType: actionData.isOneTimeShareRequest
+        ? 'one_time_share'
+        : actionData.isFolderRequest
+          ? 'folder'
+          : 'record',
+      identifier: actionData.identifier,
+      requesterEmail: actionData.requesterEmail,
+      approverEmail,
+      justification: actionData.justification,
+    }),
+  );
 }
 
 /**

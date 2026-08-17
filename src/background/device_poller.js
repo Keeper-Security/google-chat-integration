@@ -34,9 +34,8 @@ export class DeviceApprovalPoller {
     this.logger.info('Starting Cloud SSO Device Approval poller (background)...');
     this.running = true;
     this._schedule(0);
-    this.logger.info(
-      { intervalSec: this.intervalSec },
-      'Cloud SSO Device Approval poller started',
+    this.logger.ok(
+      `Cloud SSO Device Approval poller started (interval: ${this.intervalSec}s)`,
     );
   }
 

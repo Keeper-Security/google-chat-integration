@@ -49,6 +49,49 @@ function formatExpires(request) {
 }
 
 /**
+ * Command details as separate widgets so Chat HTML does not swallow
+ * hyphenated args (e.g. `google-dir-main`).
+ * @param {import('../models.js').EpmRequest} request
+ */
+function buildCommandDetailWidgets(request) {
+  const codeLine = (label, value) => ({
+    textParagraph: {
+      text: `<b>${label}:</b><br><code>${escapeHtmlText(value || '')}</code>`,
+    },
+  });
+  const textLine = (label, value) => ({
+    textParagraph: {
+      text: `<b>${label}:</b> ${escapeHtmlText(value || '')}`,
+    },
+  });
+
+  if (request.approvalType === 'CommandLine') {
+    return [
+      codeLine('Executable', request.fileName),
+      codeLine('Path', request.filePath),
+      codeLine('Command', request.command),
+      textLine('Description', request.description),
+    ];
+  }
+
+  let fullPath = 'Unknown';
+  if (request.filePath && request.fileName) {
+    const pathSeparator =
+      request.filePath.includes('\\') || request.filePath.includes(':') ? '\\' : '/';
+    fullPath = `${request.filePath}${pathSeparator}${request.fileName}`;
+  } else if (request.command) {
+    fullPath = request.command;
+  }
+
+  return [
+    codeLine('Executable', truncateText(request.fileName)),
+    codeLine('Path', truncateText(request.filePath)),
+    codeLine('Full Path', truncateText(fullPath)),
+    textLine('Description', truncateText(request.description)),
+  ];
+}
+
+/**
  * @param {import('../models.js').EpmRequest} request
  * @param {{ statusHtml?: string|null, includeActions?: boolean }} [options]
  */
@@ -63,28 +106,7 @@ export function buildEpmApprovalCard(request, options = {}) {
   const expiresStr = escapeHtmlText(formatExpires(request));
   const createdStr = escapeHtmlText(formatIsoTimestamp(request.created));
 
-  let commandDetailsHtml;
-  if (request.approvalType === 'CommandLine') {
-    commandDetailsHtml =
-      `<b>Executable:</b> <code>${escapeHtmlText(request.fileName)}</code><br>` +
-      `<b>Path:</b> <code>${escapeHtmlText(request.filePath)}</code><br>` +
-      `<b>Command:</b> <code>${escapeHtmlText(request.command)}</code><br>` +
-      `<b>Description:</b> ${escapeHtmlText(request.description)}`;
-  } else {
-    let fullPath = 'Unknown';
-    if (request.filePath && request.fileName) {
-      const pathSeparator =
-        request.filePath.includes('\\') || request.filePath.includes(':') ? '\\' : '/';
-      fullPath = `${request.filePath}${pathSeparator}${request.fileName}`;
-    } else if (request.command) {
-      fullPath = request.command;
-    }
-    commandDetailsHtml =
-      `<b>Executable:</b> <code>${escapeHtmlText(truncateText(request.fileName))}</code><br>` +
-      `<b>Path:</b> <code>${escapeHtmlText(truncateText(request.filePath))}</code><br>` +
-      `<b>Full Path:</b> <code>${escapeHtmlText(truncateText(fullPath))}</code><br>` +
-      `<b>Description:</b> ${escapeHtmlText(truncateText(request.description))}`;
-  }
+  const commandWidgets = buildCommandDetailWidgets(request);
 
   const rawJustification = request.justification
     ? sanitizeHyperlinks(request.justification)
@@ -112,7 +134,7 @@ export function buildEpmApprovalCard(request, options = {}) {
     },
     {
       header: 'Command Details',
-      widgets: [{ textParagraph: { text: commandDetailsHtml } }],
+      widgets: commandWidgets,
     },
     {
       widgets: [

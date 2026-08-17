@@ -95,19 +95,11 @@ async function main() {
 
   const epmStatus = config.epm?.enabled ? 'enabled' : 'disabled';
   logger.info(
-    {
-      epm: epmStatus,
-      intervalSec: config.epm?.pollingIntervalInSec ?? 120,
-    },
-    'EPM poller configuration',
+    `EPM poller configuration: ${epmStatus} (interval: ${config.epm?.pollingIntervalInSec ?? 120}s)`,
   );
   const deviceStatus = config.deviceApproval?.enabled ? 'enabled' : 'disabled';
   logger.info(
-    {
-      deviceApproval: deviceStatus,
-      intervalSec: config.deviceApproval?.pollingIntervalInSec ?? 120,
-    },
-    'Cloud SSO Device Approval poller configuration',
+    `Cloud SSO Device Approval poller configuration: ${deviceStatus} (interval: ${config.deviceApproval?.pollingIntervalInSec ?? 120}s)`,
   );
   app.startBackgroundJobs();
 
