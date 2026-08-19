@@ -331,11 +331,13 @@ async function handleSubmit(event, config, chatClient, keeperClient) {
     const [selUid, selIsNsf] = decodeSearchItemValue(subfolderValue);
     if (selUid && selUid !== folderUid) {
       targetFolderUid = selUid;
-      targetIsNsf = selIsNsf;
       const knownSubs = folderUid
         ? await keeperClient.listSubfolders(folderUid)
         : [];
       const matchSub = knownSubs.find((s) => s.uid === selUid);
+      // Prefer fresh folder metadata from Commander and never downgrade NSF
+      // when the parent folder is already NSF.
+      targetIsNsf = Boolean(parentIsNsf || matchSub?.is_nsf || selIsNsf);
       subfolderPath = matchSub?.path || matchSub?.name || selUid;
     }
   }

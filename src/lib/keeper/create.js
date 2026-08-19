@@ -164,7 +164,14 @@ export async function listSubfolders(client, sharedFolderUid) {
     const name = String(item.name || '');
     const path = String(item.path || name);
     if (!itemUid || !name) continue;
-    const isNsf = name.toLowerCase().includes('[nested share folder]');
+    const rawType = String(
+      item.type || item.folder_type || item.folderType || item.node_type || '',
+    ).toLowerCase();
+    const isNsf =
+      rawType.includes('nested') ||
+      rawType.includes('nsf') ||
+      name.toLowerCase().includes('[nested share folder]') ||
+      path.toLowerCase().includes('[nested share folder]');
     subfolders.push({
       uid: itemUid,
       name,
