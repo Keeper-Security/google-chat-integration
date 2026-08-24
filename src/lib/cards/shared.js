@@ -150,7 +150,7 @@ export function defaultPermissionValue({
 export function permissionAndDurationWidgets({
   isNsf = false,
   showPamRotate = false,
-  selectedDuration = '1h',
+  selectedDuration = '5m',
   selectedPermission = null,
   forFolder = false,
   forOneTimeShare = false,
@@ -267,9 +267,10 @@ export function permissionAndDurationWidgets({
   return widgets;
 }
 
-export function durationItems(selectedDuration = '1h', { excludePermanent = false } = {}) {
-  const selected = selectedDuration || '1h';
+export function durationItems(selectedDuration = '5m', { excludePermanent = false } = {}) {
+  const selected = selectedDuration || '5m';
   const items = [
+    { text: '2 minutes', value: '2m', selected: selected === '2m' },
     { text: '5 minutes', value: '5m', selected: selected === '5m' },
     { text: '10 minutes', value: '10m', selected: selected === '10m' },
     { text: '30 minutes', value: '30m', selected: selected === '30m' },

@@ -678,6 +678,23 @@ async function main() {
   }
 
   nsfCmds.length = 0;
+  await grantNsfFolderAccess(nsfFakeClient, {
+    folderUid: 'nsfFolderUid012345678901',
+    userEmail: 'user@example.com',
+    role: 'viewer',
+    durationSeconds: 3600,
+    rotateOnExpire: true,
+  });
+  const rotateFolderCmd = nsfCmds.find(
+    (c) => c.includes('nsf-share-folder') && c.includes('grant'),
+  );
+  if (!rotateFolderCmd || !rotateFolderCmd.includes('--rotate-on-expiration')) {
+    throw new Error(
+      `Expected nsf-share-folder rotate grant to include --rotate-on-expiration, got: ${rotateFolderCmd}`,
+    );
+  }
+
+  nsfCmds.length = 0;
   await grantNsfRecordAccess(nsfFakeClient, {
     recordUid: 'nsfMockNestedShare01abcd',
     userEmail: 'user@example.com',
@@ -690,6 +707,26 @@ async function main() {
   if (!permanentRecordCmd || !permanentRecordCmd.includes('--expire-in never')) {
     throw new Error(
       `Expected nsf-share-record Permanent to include --expire-in never, got: ${permanentRecordCmd}`,
+    );
+  }
+  if (permanentRecordCmd.includes('--rotate-on-expiration')) {
+    throw new Error('Permanent NSF record grant must not send --rotate-on-expiration');
+  }
+
+  nsfCmds.length = 0;
+  await grantNsfRecordAccess(nsfFakeClient, {
+    recordUid: 'nsfMockNestedShare01abcd',
+    userEmail: 'user@example.com',
+    role: 'viewer',
+    durationSeconds: 3600,
+    rotateOnExpire: true,
+  });
+  const rotateRecordCmd = nsfCmds.find(
+    (c) => c.includes('nsf-share-record') && c.includes('grant'),
+  );
+  if (!rotateRecordCmd || !rotateRecordCmd.includes('--rotate-on-expiration')) {
+    throw new Error(
+      `Expected nsf-share-record rotate grant to include --rotate-on-expiration, got: ${rotateRecordCmd}`,
     );
   }
 

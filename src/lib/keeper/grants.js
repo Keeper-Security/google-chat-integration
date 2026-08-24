@@ -55,6 +55,7 @@ export async function grantRecordAccess(client, {
       userEmail,
       role: permission,
       durationSeconds,
+      rotateOnExpire: rotateOnExpire && isPamUserRecordType(recordType),
     });
   }
   return client.grantClassicRecordAccess({
@@ -180,6 +181,7 @@ export async function grantNsfRecordAccess(client, {
   userEmail,
   role,
   durationSeconds = null,
+  rotateOnExpire = false,
 }) {
   const nsfRole = Object.values(NSFPermissionRole).includes(role)
     ? role
@@ -239,6 +241,9 @@ export async function grantNsfRecordAccess(client, {
     parts.push(...nsfExpireInFlags(durationSeconds));
     if (durationSeconds != null) {
       expiresAtStr = new Date(Date.now() + durationSeconds * 1000).toISOString();
+      if (rotateOnExpire) {
+        parts.push('--rotate-on-expiration');
+      }
     }
   }
   parts.push('-f');
@@ -266,6 +271,9 @@ export async function grantNsfRecordAccess(client, {
       expires_at: expiresAtStr,
       permission: nsfRole,
       is_nsf: true,
+      rotate_on_expire: Boolean(
+        rotateOnExpire && durationSeconds != null && !permanentOnly,
+      ),
     };
   }
   return {
@@ -435,6 +443,7 @@ export async function grantNsfFolderAccess(client, {
   userEmail,
   role,
   durationSeconds = null,
+  rotateOnExpire = false,
 }) {
   const nsfRole = Object.values(NSFPermissionRole).includes(role)
     ? role
@@ -460,6 +469,9 @@ export async function grantNsfFolderAccess(client, {
     parts.push(...nsfExpireInFlags(durationSeconds));
     if (durationSeconds != null) {
       expiresAtStr = formatDurationFromSeconds(durationSeconds);
+      if (rotateOnExpire) {
+        parts.push('--rotate-on-expiration');
+      }
     }
   }
 
@@ -487,6 +499,9 @@ export async function grantNsfFolderAccess(client, {
       permission: nsfRole,
       is_nsf: true,
       duration: durationSeconds != null && !permanentOnly ? 'temporary' : 'permanent',
+      rotate_on_expire: Boolean(
+        rotateOnExpire && durationSeconds != null && !permanentOnly,
+      ),
     };
   }
 

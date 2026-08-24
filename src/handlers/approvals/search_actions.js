@@ -109,8 +109,7 @@ export async function handleUpdateSearchSelection(
   const query =
     extractFormValue(event, 'search_query') || actionData.identifier;
   const selectedValue = extractFormValue(event, 'selected_record');
-  const defaultDuration =
-    actionData.isFolderRequest || actionData.isOneTimeShareRequest ? '5m' : '1h';
+  const defaultDuration = '5m';
   const selectedDuration =
     extractFormValue(event, 'duration') || actionData.duration || defaultDuration;
   const selectedPermission = extractFormValue(event, 'permission');
@@ -220,8 +219,7 @@ export async function handleUpdatePermissionSelection(
     }
   }
 
-  const defaultDuration =
-    actionData.isFolderRequest || actionData.isOneTimeShareRequest ? '5m' : '1h';
+  const defaultDuration = '5m';
   const selectedDuration =
     extractFormValue(event, 'duration') || actionData.duration || defaultDuration;
 
@@ -259,7 +257,7 @@ export async function handleResyncVault(
   const selectedDuration =
     extractFormValue(event, 'duration') ||
     actionData.duration ||
-    (actionData.isFolderRequest || actionData.isOneTimeShareRequest ? '5m' : '1h');
+    '5m';
 
   if (messageName) {
     await chatClient.patchMessage(messageName, {

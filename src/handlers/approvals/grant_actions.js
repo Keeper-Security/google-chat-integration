@@ -180,7 +180,7 @@ export async function grantAndNotify(
     forFolder
       ? PermissionLevel.NO_PERMISSIONS
       : PermissionLevel.VIEW_ONLY;
-  const defaultDuration = forFolder || forOts ? '5m' : '1h';
+  const defaultDuration = '5m';
 
   let permissionRaw =
     extractFormValue(event, 'permission') || defaultPermission;
@@ -240,7 +240,6 @@ export async function grantAndNotify(
   const rotateOnExpire =
     !forOts &&
     rotateSelected &&
-    !isNsf &&
     !isSelfDestruct &&
     !permanentOnly &&
     durationSeconds != null &&
@@ -298,6 +297,7 @@ export async function grantAndNotify(
           userEmail: actionData.requesterEmail,
           role: permission,
           durationSeconds: permanentOnly ? null : durationSeconds,
+          rotateOnExpire,
         });
       } else {
         result = await keeperClient.grantFolderAccess({
