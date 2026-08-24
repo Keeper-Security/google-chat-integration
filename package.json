@@ -1,0 +1,36 @@
+{
+  "name": "keeper-google-chat-integration",
+  "version": "1.0.0",
+  "description": "Self-hosted Keeper Google Chat App for secure credential access requests and approval workflows",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "test:local": "node scripts/test_local_flow.js",
+    "diagnose": "node scripts/diagnose_chat_pubsub.js",
+    "setup:pubsub": "node scripts/setup_pubsub.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "keeper",
+    "google-chat",
+    "pubsub",
+    "secrets-manager"
+  ],
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@google-apps/chat": "^0.20.0",
+    "@google-cloud/pubsub": "^4.11.0",
+    "@keeper-security/secrets-manager-core": "^17.5.0",
+    "google-auth-library": "^10.9.0",
+    "js-yaml": "^4.3.1",
+    "pino": "^9.6.0"
+  },
+  "overrides": {
+    "uuid": "^11.1.1",
+    "brace-expansion": "^2.1.4"
+  }
+}

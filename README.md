@@ -2,14 +2,17 @@
 
 Self-hosted Google Chat app for Keeper Security. Zero-knowledge encryption is preserved by running the listener on **customer infrastructure** and talking to **Keeper Commander Service Mode** over a local REST API.
 
-This Node.js project mirrors the Keeper Slack App model, using **Google Cloud Pub/Sub** (outbound pull) so no public inbound endpoint is required.
+This Node.js project uses **Google Cloud Pub/Sub** (outbound pull) so no public inbound endpoint is required.
 
 ## Overview
 
 - Request access to Keeper records with approval workflows (`/keeper-request-record`)
+- Request folder access (`/keeper-request-folder`) and external shares (`/keeper-external-share`)
+- Create secrets directly in shared folders (`/keeper-create-secret` — bot DM or a space only; not peer DMs)
 - Approvers grant or deny access from a dedicated Google Chat space
+- Optional **EPM** privilege-elevation approvals (background poll → Approve/Deny in the approvals space)
+- Optional **Cloud SSO device** approvals (background poll → Approve Device / Deny Device)
 - Requesters receive DMs with the result
-- Optional mock mode for UI testing without a live Commander
 
 ```text
 [ Google Chat ] --> [ Pub/Sub topic ] <-- pull -- [ This app (Node/Docker) ]
@@ -23,15 +26,14 @@ This Node.js project mirrors the Keeper Slack App model, using **Google Cloud Pu
 - Node.js 18+
 - Google Workspace + GCP project (Chat API + Pub/Sub enabled)
 - `service-account.json` for the worker service account
-- Keeper Commander (optional if `mock_mode: true`)
+- Keeper Commander Service Mode
 
 ## Quick start
 
 ```bash
 cd ~/Desktop/Keeper-google-chat-integration
-cp config.example.yaml config.yaml   # already created if you followed setup
-cp .env.example .env
-# Place service-account.json in the project root
+cp config.example.yaml config.yaml
+# Edit config.yaml, then place service-account.json in the project root
 npm install
 npm run test:local                   # offline end-to-end (no GCP)
 npm start                            # live Pub/Sub listener
@@ -45,14 +47,72 @@ npm start                            # live Pub/Sub listener
 
 ## Configuration
 
-| Item | Source | Purpose |
-|------|--------|---------|
-| `GOOGLE_PROJECT_ID` | `.env` / `config.yaml` | GCP project |
-| `GOOGLE_SUBSCRIPTION_ID` | `.env` / `config.yaml` | Pub/Sub pull subscription |
-| `GOOGLE_APPLICATION_CREDENTIALS` | `.env` | Path to `service-account.json` |
-| `CHAT_APPROVALS_SPACE_ID` | `.env` / `config.yaml` | Approvals space (`spaces/...`) |
-| `KEEPER_MOCK_MODE` | `.env` / `config.yaml` | Skip live Commander |
-| `KEEPER_SERVICE_URL` / `KEEPER_API_KEY` | `.env` / `config.yaml` | Commander Service Mode |
+### Local development
+
+Settings live in `config.yaml` (copy from `config.example.yaml`). Place `service-account.json` next to it.
+
+| Key | Purpose |
+|-----|---------|
+| `google.project_id` | GCP project |
+| `google.subscription_id` | Pub/Sub pull subscription |
+| `google.credentials_file` | Path to `service-account.json` |
+| `chat.approvals_space_id` | Approvals space (`spaces/...`) |
+| `keeper.service_url` / `keeper.api_key` | Commander Service Mode |
+| `epm.enabled` | Poll for EPM elevation approvals |
+| `epm.polling_interval_in_sec` | EPM poll interval (default 120) |
+| `device_approval.enabled` | Poll for Cloud SSO device approvals |
+| `device_approval.polling_interval_in_sec` | Device poll interval (default 120) |
+
+### Production (KSM)
+
+When `KSM_CONFIG` is set, credentials are loaded from Keeper Secrets Manager. KSM overlays any local YAML.
+
+| Env | Purpose |
+|-----|---------|
+| `KSM_CONFIG` | Base64 KSM client config JSON, or path to `ksm-config.json` |
+| `COMMANDER_RECORD` | UID or title for Service Mode record (default `CSMD config`) |
+| `GCHAT_RECORD` | UID or title for Google Chat record (default `CSMD google chat config`) |
+
+**COMMANDER_RECORD** fields: `service_url`, `api_key`
+
+**GCHAT_RECORD** fields:
+
+| Vault field | Maps to |
+|-------------|---------|
+| `google_service_account_json` | Temp SA file for Chat + Pub/Sub |
+| `google_project_id` | `google.project_id` |
+| `google_subscription_id` | `google.subscription_id` |
+| `google_topic_id` | `google.topic_id` |
+| `chat_approval_space_id` | `chat.approvals_space_id` |
+| `chat_command_request_record_id` | slash command id |
+| `chat_command_request_folder_id` | slash command id |
+| `chat_command_external_share_id` | slash command id (`/keeper-external-share`) |
+| `pedm_enabled` | `epm.enabled` |
+| `pedm_polling_interval` | `epm.polling_interval_in_sec` |
+| `device_approval_enabled` | `device_approval.enabled` |
+| `device_approval_polling_interval` | `device_approval.polling_interval_in_sec` |
+
+Optional notes JSON on either record can override the same keys.
+
+## EPM approvals
+
+When `epm.enabled` is true, the app polls Keeper Commander (`epm sync-down` + `epm approval list --type pending`) and posts new elevation requests to the approvals space. Approvers use **Approve** / **Deny** on the card (`epm approval action --approve|--deny`). Already-processed requests show a clear status. Commander Service Mode must allowlist the `epm` commands.
+
+```yaml
+epm:
+  enabled: true
+  polling_interval_in_sec: 120
+```
+
+## Cloud SSO device approvals
+
+When `device_approval.enabled` is true, the app polls Keeper Commander (`device-approve --reload --format=json`) and posts new device registration requests to the approvals space. Approvers use **Approve Device** / **Deny Device** (`device-approve --approve|--deny`). Already-processed devices show a clear status. Commander Service Mode must allowlist the `device-approve` command.
+
+```yaml
+device_approval:
+  enabled: true
+  polling_interval_in_sec: 120
+```
 
 ## Docker
 
@@ -68,20 +128,20 @@ Mount `config.yaml` and `service-account.json` (see `docker-compose.yml`).
 ```text
 src/index.js                 # Pub/Sub listener entrypoint
 src/app.js                   # Event normalize + router
-src/handlers/request_record.js
-src/handlers/approvals.js
+src/handlers/                # Slash command + card handlers
+src/handlers/approvals/      # Approval card click actions
+src/background/              # EPM + device approval pollers
+src/lib/cards/               # Google Chat card builders
+src/lib/keeper/              # Commander client (client, search, grants, create, epm, device)
 src/lib/chat_client.js
-src/lib/keeper_client.js
-src/lib/cards.js
 scripts/test_local_flow.js
 scripts/diagnose_chat_pubsub.js
 config.example.yaml
-.env.example
 ```
 
 ## Security note
 
-Never commit `service-account.json`, `.env`, or `config.yaml` with live secrets. Rotate any key that was shared in chat or committed by mistake.
+Never commit `service-account.json` or `config.yaml` with live secrets. Rotate any key that was shared in chat or committed by mistake.
 
 ## License
 
