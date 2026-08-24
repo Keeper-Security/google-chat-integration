@@ -373,12 +373,14 @@ export class KeeperClient {
     userEmail,
     role,
     durationSeconds = null,
+    rotateOnExpire = false,
   }) {
     return grants.grantNsfRecordAccess(this, {
       recordUid,
       userEmail,
       role,
       durationSeconds,
+      rotateOnExpire,
     });
   }
 
@@ -403,12 +405,14 @@ export class KeeperClient {
     userEmail,
     role,
     durationSeconds = null,
+    rotateOnExpire = false,
   }) {
     return grants.grantNsfFolderAccess(this, {
       folderUid,
       userEmail,
       role,
       durationSeconds,
+      rotateOnExpire,
     });
   }
 

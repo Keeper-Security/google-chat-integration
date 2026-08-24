@@ -57,7 +57,7 @@ export function buildCreateRecordCard(actionData, options = {}) {
       {
         textParagraph: {
           text:
-            '⚠️ Auto-generate password to keep it fully private. Generated passwords stay in your Keeper Vault ' +
+            '\u26A0\uFE0F  Auto-generate password to keep it fully private. Generated passwords stay in your Keeper Vault ' +
             '(zero-knowledge), while manually entered passwords pass through Google Chat.',
         },
       },
@@ -126,7 +126,7 @@ export function buildCreateRecordCard(actionData, options = {}) {
           type: 'CHECK_BOX',
           items: [
             {
-              text: '🎲 Auto-generate password',
+              text: '\u{1F3B2} Auto-generate password',
               value: 'auto_gen',
               selected: Boolean(form.auto_gen),
             },
@@ -197,6 +197,7 @@ export function buildCreateRecordCard(actionData, options = {}) {
           label: 'Link Expires In',
           type: 'DROPDOWN',
           items: [
+            { text: '2 minutes', value: '2m', selected: selectedExp === '2m' },
             { text: '5 minutes', value: '5m', selected: selectedExp === '5m' },
             { text: '10 minutes', value: '10m', selected: selectedExp === '10m' },
             { text: '30 minutes', value: '30m', selected: selectedExp === '30m' },

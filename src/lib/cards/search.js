@@ -27,7 +27,7 @@ export function buildSearchResultsCard(actionData, results, options = {}) {
   const selectedDuration =
     options.selectedDuration ||
     actionData.duration ||
-    (forFolder || forOts ? '5m' : '1h');
+    '5m';
   const selectedPermission = options.selectedPermission || null;
   const currentQuery = options.currentQuery || actionData.identifier;
   const params = actionData.toParameters();
@@ -236,8 +236,7 @@ export function buildSearchResultsCard(actionData, results, options = {}) {
     const showPamRotate = forOts
       ? false
       : forFolder
-      ? !useNsfPermissions &&
-        Boolean(
+      ? Boolean(
           options.isPamFolder != null
             ? options.isPamFolder
             : actionData.isPamFolder,

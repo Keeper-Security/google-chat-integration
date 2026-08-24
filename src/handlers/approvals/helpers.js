@@ -116,10 +116,15 @@ export async function searchVaultItems(actionData, query, keeperClient, limit = 
 }
 
 /**
- * Probe PAM eligibility for a selected classic folder.
+ * Probe PAM rotate-on-expire eligibility for a selected folder.
+ * Classic and NSF folders both use `list-sf --roe-eligible` — NSF type alone
+ * does not imply PAM (and must not skip this probe).
+ * @param {import('../../lib/keeper/client.js').KeeperClient} keeperClient
+ * @param {string} folderUid
+ * @param {boolean} [_isNsf] retained for call-site compatibility; unused
  */
-export async function resolveFolderPamFlag(keeperClient, folderUid, isNsf) {
-  if (!folderUid || isNsf) return false;
+export async function resolveFolderPamFlag(keeperClient, folderUid, _isNsf = false) {
+  if (!folderUid) return false;
   try {
     const pam = await keeperClient.isPamUserFolder(folderUid);
     return Boolean(pam?.isPam);

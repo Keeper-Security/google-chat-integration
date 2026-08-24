@@ -143,7 +143,7 @@ export function buildCreateSecretRecordFormCard(options) {
     {
       textParagraph: {
         text:
-          '⚠️ Auto-generate password to keep it fully private. Generated passwords stay in your Keeper Vault ' +
+          '\u26A0\uFE0F  Auto-generate password to keep it fully private. Generated passwords stay in your Keeper Vault ' +
           '(zero-knowledge), while manually entered passwords pass through Google Chat.',
       },
     },
@@ -202,7 +202,7 @@ export function buildCreateSecretRecordFormCard(options) {
         type: 'CHECK_BOX',
         items: [
           {
-            text: '🎲 Auto-generate password',
+            text: '\u{1F3B2} Auto-generate password',
             value: 'auto_gen',
             selected: Boolean(form.auto_gen),
           },
@@ -213,7 +213,6 @@ export function buildCreateSecretRecordFormCard(options) {
       textInput: {
         name: 'secret_password',
         label: 'Password (optional)',
-        value: form.secret_password || '',
         type: 'SINGLE_LINE',
         hintText: 'Enter password (or check auto-generate above)',
       },

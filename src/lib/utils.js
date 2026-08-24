@@ -21,6 +21,7 @@ const COMMAND_UNSAFE_CHARS = /[;|&$`(){}[\]!\\\n\r\x00:]/g;
 const SEARCH_UNSAFE_CHARS = /[;|&$`(){}[\]!\\\n\r\x00<>"']/g;
 
 const DURATION_SECONDS = {
+  '2m': 2 * 60,
   '5m': 5 * 60,
   '10m': 10 * 60,
   '30m': 30 * 60,
@@ -161,15 +162,16 @@ export function generateApprovalId() {
  * @returns {number|null}
  */
 export function parseDurationToSeconds(duration) {
-  const key = String(duration || '1h').toLowerCase();
+  const key = String(duration || '5m').toLowerCase();
   if (key === 'permanent' || key === 'no expiration') return null;
-  return DURATION_SECONDS[key] ?? 3600;
+  return DURATION_SECONDS[key] ?? 300;
 }
 
 export function formatDuration(duration) {
-  const key = String(duration || '1h').toLowerCase();
+  const key = String(duration || '5m').toLowerCase();
   if (key === 'permanent') return 'No Expiration';
   const labels = {
+    '2m': '2 minutes',
     '5m': '5 minutes',
     '10m': '10 minutes',
     '30m': '30 minutes',

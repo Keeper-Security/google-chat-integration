@@ -30,12 +30,12 @@ export function buildApprovalCard(actionData, item = null, options = {}) {
   const showPamRotate = forOts
     ? false
     : forFolder
-      ? Boolean(actionData.isPamFolder) && !isNsf
+      ? Boolean(actionData.isPamFolder)
       : Boolean(record && isPamUserRecordType(record.recordType));
   const selectedDuration =
     options.selectedDuration ||
     actionData.duration ||
-    (forFolder || forOts ? '5m' : '1h');
+    '5m';
   const selectedPermission = options.selectedPermission || null;
   const bodySections = [];
 
