@@ -154,13 +154,16 @@ jobs:
           # caches are ref-scoped, so a tag run's cache is unreadable by later releases.
           cache-from: type=gha,scope=gchat-app
 
+      # Referenced by tag rather than by digest: a digest pins one manifest, so `docker run`
+      # rejects --platform against it with "cannot overwrite digest".
       - name: Smoke test both architectures
         env:
-          REF: ${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+          REF: ${{ env.IMAGE_NAME }}:${{ needs.validate.outputs.version }}
         run: |
           set -euo pipefail
           for platform in linux/amd64 linux/arm64; do
             echo "--- $platform"
+            docker pull --quiet --platform "$platform" "$REF"
             docker run --rm --platform "$platform" --entrypoint node "$REF" \
               -e 'console.log(process.arch, process.version)'
             out="$(docker run --rm --platform "$platform" "$REF" 2>&1 || true)"
