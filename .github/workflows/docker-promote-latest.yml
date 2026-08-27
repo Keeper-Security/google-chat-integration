@@ -1,0 +1,110 @@
+# Points :latest at an already-published version tag.
+#
+# This is a registry-side manifest copy rather than a rebuild, so :latest resolves to the exact
+# digest that was verified.
+#
+# Run manually after the target tag has passed the checks in RELEASING.md.
+
+name: Promote Docker Image to :latest
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Published version tag to promote (e.g. v1.0.0). Prereleases are rejected.'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+# Shared with docker-release.yml so a promotion cannot interleave with a build.
+concurrency:
+  group: docker-release
+  cancel-in-progress: false
+
+env:
+  IMAGE_NAME: keeper/gchat-app
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: release
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Validate promotion target
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+
+          if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::'$VERSION' is not a GA tag. :latest must not point at a prerelease."
+            exit 1
+          fi
+
+          if ! git rev-parse -q --verify "refs/tags/$VERSION" >/dev/null; then
+            echo "::error::git tag $VERSION does not exist in this repository"
+            exit 1
+          fi
+
+          HIGHEST="$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' | grep -v -- '-' | sort -V | tail -1)"
+          if [ "$VERSION" != "$HIGHEST" ]; then
+            echo "::error::$VERSION is not the highest GA tag ($HIGHEST); refusing to move :latest backwards"
+            exit 1
+          fi
+          echo "OK: $VERSION is the highest GA tag"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to DockerHub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Verify the source tag is a complete multi-arch image
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          SRC="${IMAGE_NAME}:${VERSION}"
+          PLATFORMS="$(docker buildx imagetools inspect "$SRC" --raw \
+            | jq -r '.manifests[] | select(.platform.architecture != "unknown")
+                     | "\(.platform.os)/\(.platform.architecture)"' | sort -u)"
+          echo "Source platforms:"
+          printf '%s\n' "$PLATFORMS"
+          for required in linux/amd64 linux/arm64; do
+            if ! grep -qx "$required" <<<"$PLATFORMS"; then
+              echo "::error::$SRC is missing $required; refusing to promote a partial image"
+              exit 1
+            fi
+          done
+
+      - name: Point :latest at ${{ inputs.version }}
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          docker buildx imagetools create \
+            --tag "${IMAGE_NAME}:latest" \
+            "${IMAGE_NAME}:${VERSION}"
+          docker buildx imagetools inspect "${IMAGE_NAME}:latest"
+
+      - name: Summary
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          {
+            echo "### \`${IMAGE_NAME}:latest\` now points at \`${VERSION}\`"
+            echo
+            echo 'Copied by digest, so :latest is identical to the verified image.'
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -8,8 +8,7 @@
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
     "test:local": "node scripts/test_local_flow.js",
-    "diagnose": "node scripts/diagnose_chat_pubsub.js",
-    "setup:pubsub": "node scripts/setup_pubsub.js"
+    "diagnose": "node scripts/diagnose_chat_pubsub.js"
   },
   "engines": {
     "node": ">=18"

@@ -31,7 +31,8 @@ This Node.js project uses **Google Cloud Pub/Sub** (outbound pull) so no public 
 ## Quick start
 
 ```bash
-cd ~/Desktop/Keeper-google-chat-integration
+git clone https://github.com/Keeper-Security/google-chat-integration.git
+cd google-chat-integration
 cp config.example.yaml config.yaml
 # Edit config.yaml, then place service-account.json in the project root
 npm install
@@ -116,12 +117,24 @@ device_approval:
 
 ## Docker
 
+The published image is `keeper/gchat-app`, built for `linux/amd64` and `linux/arm64`.
+
+For production, Keeper Commander's `gchat-app-setup` command generates a `docker-compose.yml`
+containing both Commander Service Mode and this app, configured through Keeper Secrets Manager.
+See [setup.md](setup.md).
+
+For local development:
+
 ```bash
-docker compose up -d --build
-docker compose logs -f
+docker compose -f docker-compose.example.yml up -d --build
+docker compose -f docker-compose.example.yml logs -f
 ```
 
-Mount `config.yaml` and `service-account.json` (see `docker-compose.yml`).
+This mounts `config.yaml` and `service-account.json` into the container. When running in a
+container, `localhost` in `keeper.service_url` is rewritten to the Commander service name
+(`commander-gchat` by default); set `COMMANDER_HOST` to override it.
+
+The release process is documented in [RELEASING.md](RELEASING.md).
 
 ## Project layout
 

@@ -1,0 +1,35 @@
+# Keeps the build context small and prevents local credentials from being sent to the builder.
+
+# VCS and CI
+.git
+.github
+.gitignore
+.dockerignore
+.idea
+.vscode
+.DS_Store
+
+# Reinstalled from the lockfile inside the image
+node_modules
+
+# Credentials
+config.yaml
+service-account.json
+ksm-config.json
+.env
+.env.*
+*.pem
+*.key
+
+# Compose files carry a KSM config and API key
+docker-compose.yml
+docker-compose.example.yml
+
+# Not needed at runtime
+scripts
+Taskfile.yml
+*.md
+*.log
+logs
+coverage
+dist

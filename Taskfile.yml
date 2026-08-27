@@ -1,0 +1,98 @@
+version: '3'
+
+# Development helpers and the release entry point.
+#
+# Image publishing is handled by .github/workflows/docker-release.yml. The published image is
+# multi-arch, so it is built with buildx in CI rather than pushed from a workstation.
+
+vars:
+  IMAGE_NAME: keeper/gchat-app
+  PLATFORMS: linux/amd64,linux/arm64
+  DEV_COMPOSE: docker-compose.example.yml
+  VERSION:
+    sh: node -p "require('./package.json').version"
+
+tasks:
+  version:
+    desc: Show the current version from package.json
+    cmds:
+      - echo "{{.VERSION}}"
+
+  tag:
+    desc: Tag and push vX.Y.Z from package.json, publishing a release
+    preconditions:
+      - sh: test -z "$(git status --porcelain)"
+        msg: "Working tree is not clean. Commit or stash changes first."
+      - sh: 'test -z "$(git tag -l v{{.VERSION}})"'
+        msg: "Tag v{{.VERSION}} already exists"
+    cmds:
+      - echo "Tagging v{{.VERSION}}"
+      - git tag v{{.VERSION}}
+      - git push origin v{{.VERSION}}
+
+  tag-rc:
+    desc: Tag and push a release candidate (usage - task tag-rc RC=1)
+    requires:
+      vars: [RC]
+    preconditions:
+      - sh: test -z "$(git status --porcelain)"
+        msg: "Working tree is not clean. Commit or stash changes first."
+      - sh: 'test -z "$(git tag -l v{{.VERSION}}-rc.{{.RC}})"'
+        msg: "Tag v{{.VERSION}}-rc.{{.RC}} already exists"
+    cmds:
+      - echo "Tagging v{{.VERSION}}-rc.{{.RC}}"
+      - git tag v{{.VERSION}}-rc.{{.RC}}
+      - git push origin v{{.VERSION}}-rc.{{.RC}}
+
+  promote:
+    desc: Point :latest at a published GA tag (usage - task promote TAG=v1.0.0)
+    requires:
+      vars: [TAG]
+    cmds:
+      - gh workflow run docker-promote-latest.yml -f version={{.TAG}}
+      - echo "Started promotion of {{.TAG}}. Track it with - gh run watch"
+
+  build:
+    desc: Build the image locally for development
+    cmds:
+      - docker build -t {{.IMAGE_NAME}}:dev .
+
+  verify:
+    desc: Build both published architectures without pushing
+    cmds:
+      - docker buildx build --platform {{.PLATFORMS}} --provenance=false .
+
+  dev:
+    desc: Run the app locally with file watching
+    cmds:
+      - npm run dev
+
+  start:
+    desc: Start the app locally
+    cmds:
+      - npm start
+
+  test:
+    desc: Run the offline end-to-end flow
+    cmds:
+      - npm run test:local
+
+  up:
+    desc: Start the local development stack
+    cmds:
+      - docker compose -f {{.DEV_COMPOSE}} up -d --build
+
+  down:
+    desc: Stop the local development stack
+    cmds:
+      - docker compose -f {{.DEV_COMPOSE}} down
+
+  logs:
+    desc: Tail logs from the local development stack
+    cmds:
+      - docker compose -f {{.DEV_COMPOSE}} logs -f
+
+  clean:
+    desc: Remove locally built development images
+    cmds:
+      - docker rmi {{.IMAGE_NAME}}:dev 2>/dev/null || true
