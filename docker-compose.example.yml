@@ -1,0 +1,36 @@
+# Local development stack.
+#
+# For production, Keeper Commander's `gchat-app-setup` command generates a docker-compose.yml
+# containing both Commander Service Mode and this app, wired to Keeper Secrets Manager. See
+# setup.md.
+#
+# Usage:
+#   cp config.example.yaml config.yaml          # then edit it
+#   # place service-account.json next to it
+#   docker compose -f docker-compose.example.yml up -d --build
+#
+# Or via the Taskfile: task up / task logs / task down
+
+services:
+  gchat-app:
+    container_name: keeper-gchat-app-dev
+    build:
+      context: .
+    image: keeper/gchat-app:dev
+    environment:
+      # In a container, `localhost` in keeper.service_url is rewritten to the Commander
+      # service name (default `commander-gchat`). Point it at the host to reach a Commander
+      # Service Mode running outside Docker, or remove this to use a sibling container named
+      # `commander-gchat`.
+      COMMANDER_HOST: ${COMMANDER_HOST:-host.docker.internal}
+
+      # To use Keeper Secrets Manager instead of config.yaml, set these and remove the mounts.
+      # KSM_CONFIG: ${KSM_CONFIG}
+      # COMMANDER_RECORD: ${COMMANDER_RECORD:-CSMD config}
+      # GCHAT_RECORD: ${GCHAT_RECORD:-CSMD google chat config}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+      - ./service-account.json:/app/service-account.json:ro
+    restart: unless-stopped
