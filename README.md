@@ -4,6 +4,9 @@ Self-hosted Google Chat app for Keeper Security. Zero-knowledge encryption is pr
 
 This Node.js project uses **Google Cloud Pub/Sub** (outbound pull) so no public inbound endpoint is required.
 
+Documentation:
+[https://docs.keeper.io/keeperpam/secrets-manager/integrations/google-chat-app](https://docs.keeper.io/keeperpam/secrets-manager/integrations/google-chat-app)
+
 ## Overview
 
 - Request access to Keeper records with approval workflows (`/keeper-request-record`)
