@@ -330,7 +330,7 @@ export function mergeConfigSections(base, overlay) {
 /**
  * Fetch Commander + Google Chat credentials from KSM.
  * @param {{ ksmConfig?: string|null, commanderRecord?: string|null, gchatRecord?: string|null }} options
- * @returns {Promise<{ data: object, ksmLoaded: boolean }>}
+ * @returns {Promise<{ data: object, ksmLoaded: boolean, ksmConfigured: boolean, ksmError?: Error }>}
  */
 export async function fetchCredentialsFromKsm(options = {}) {
   const logger = getLogger();
@@ -339,7 +339,7 @@ export async function fetchCredentialsFromKsm(options = {}) {
   const gchatRecord = options.gchatRecord || null;
 
   if (!ksmConfig) {
-    return { data: {}, ksmLoaded: false };
+    return { data: {}, ksmLoaded: false, ksmConfigured: false };
   }
 
   let getSecrets;
@@ -355,13 +355,14 @@ export async function fetchCredentialsFromKsm(options = {}) {
       { err: error },
       'KSM SDK not available — install @keeper-security/secrets-manager-core',
     );
-    return { data: {}, ksmLoaded: false };
+    return { data: {}, ksmLoaded: false, ksmConfigured: true, ksmError: error };
   }
 
   const configPath = processKsmConfig(ksmConfig);
   if (!configPath) {
+    const error = new Error('Failed to process KSM_CONFIG');
     logger.error('Failed to process KSM_CONFIG');
-    return { data: {}, ksmLoaded: false };
+    return { data: {}, ksmLoaded: false, ksmConfigured: true, ksmError: error };
   }
 
   const storage = localConfigStorage(configPath);
@@ -407,6 +408,7 @@ export async function fetchCredentialsFromKsm(options = {}) {
 
   let data = {};
   const fetched = [];
+  let ksmError = null;
 
   if (commanderRecord) {
     try {
@@ -416,9 +418,12 @@ export async function fetchCredentialsFromKsm(options = {}) {
         data = mergeConfigSections(data, mapped);
         if (mapped.keeper) fetched.push('Service Mode Credentials');
         else logger.warn('No Keeper fields extracted from COMMANDER_RECORD');
+      } else {
+        ksmError = new Error('COMMANDER_RECORD not found or returned no data');
       }
     } catch (error) {
       logger.error({ err: error }, 'Failed to fetch COMMANDER_RECORD from KSM');
+      ksmError = error;
     }
   }
 
@@ -430,9 +435,12 @@ export async function fetchCredentialsFromKsm(options = {}) {
         data = mergeConfigSections(data, mapped);
         if (mapped.google || mapped.chat) fetched.push('Google Chat Credentials');
         else logger.warn('No Google Chat fields extracted from GCHAT_RECORD');
+      } else {
+        if (!ksmError) ksmError = new Error('GCHAT_RECORD not found or returned no data');
       }
     } catch (error) {
       logger.error({ err: error }, 'Failed to fetch GCHAT_RECORD from KSM');
+      if (!ksmError) ksmError = error;
     }
   }
 
@@ -443,7 +451,62 @@ export async function fetchCredentialsFromKsm(options = {}) {
     );
   }
 
-  return { data, ksmLoaded: Object.keys(data).length > 0 };
+  return { data, ksmLoaded: Object.keys(data).length > 0, ksmConfigured: true, ksmError };
+}
+
+/**
+ * Check if an error is likely transient (network-related).
+ * @param {Error} error
+ * @returns {boolean}
+ */
+function isTransientError(error) {
+  if (!error) return false;
+  const msg = String(error?.message || '').toLowerCase();
+  return (
+    msg.includes('econnrefused') ||
+    msg.includes('econnreset') ||
+    msg.includes('etimedout') ||
+    msg.includes('network') ||
+    msg.includes('timeout') ||
+    msg.includes('temporarily')
+  );
+}
+
+/**
+ * Retry a KSM fetch with exponential backoff for transient failures.
+ * @param {() => Promise<object>} fn
+ * @param {number} [maxAttempts=3]
+ * @returns {Promise<object>}
+ */
+async function retryWithBackoff(fn, maxAttempts = 3) {
+  const logger = getLogger();
+  let lastError;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      if (!isTransientError(error) || attempt === maxAttempts) {
+        throw error;
+      }
+      const delay = Math.pow(2, attempt - 1) * 1000;
+      logger.warn(
+        { err: error, attempt, nextRetryMs: delay },
+        'KSM error; retrying',
+      );
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+  throw lastError;
+}
+
+/**
+ * Fetch credentials from KSM with retry logic for transient failures.
+ * @param {{ ksmConfig?: string|null, commanderRecord?: string|null, gchatRecord?: string|null }} options
+ * @returns {Promise<{ data: object, ksmLoaded: boolean, ksmConfigured: boolean, ksmError?: Error }>}
+ */
+export async function retryFetchCredentialsFromKsm(options = {}) {
+  return retryWithBackoff(() => fetchCredentialsFromKsm(options));
 }
 
 /**

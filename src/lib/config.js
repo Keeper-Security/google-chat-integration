@@ -10,9 +10,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import yaml from 'js-yaml';
 import {
-  fetchCredentialsFromKsm,
   mergeConfigSections,
   resolveKsmBootstrap,
+  retryFetchCredentialsFromKsm,
 } from './ksm_utils.js';
 import { getLogger } from './logger.js';
 
@@ -106,20 +106,26 @@ export async function loadConfig(configPath) {
 
   const bootstrap = resolveKsmBootstrap();
   let ksmLoaded = false;
+  let ksmConfigured = false;
+  let ksmError = null;
 
   // Only hit KSM when KSM_CONFIG (or docker secret) is present — local YAML mode otherwise.
   if (bootstrap.ksmConfig) {
     try {
-      const { data, ksmLoaded: loaded } = await fetchCredentialsFromKsm({
+      const result = await retryFetchCredentialsFromKsm({
         ksmConfig: bootstrap.ksmConfig,
         commanderRecord: bootstrap.commanderRecord,
         gchatRecord: bootstrap.gchatRecord,
       });
-      if (loaded && data && Object.keys(data).length) {
-        fileData = mergeConfigSections(fileData, data);
+      ksmConfigured = result.ksmConfigured;
+      ksmError = result.ksmError;
+      if (result.ksmLoaded && result.data && Object.keys(result.data).length) {
+        fileData = mergeConfigSections(fileData, result.data);
         ksmLoaded = true;
       }
     } catch (error) {
+      ksmConfigured = true;
+      ksmError = error;
       try {
         getLogger().warn({ err: error }, 'Failed to load configuration from KSM');
       } catch {
@@ -129,10 +135,15 @@ export async function loadConfig(configPath) {
     }
   }
 
-  return buildConfigFromData(fileData, {
+  const config = buildConfigFromData(fileData, {
     configPath: resolvedPath,
     ksmLoaded,
   });
+  // Attach KSM metadata for validation
+  config._ksmConfigured = ksmConfigured;
+  config._ksmError = ksmError;
+
+  return config;
 }
 
 /**
@@ -161,9 +172,16 @@ export function validateStartupConfig(config) {
     missing.push(`google.credentials_file (${config.google.credentialsFile})`);
   }
   if (missing.length) {
-    const hint = config.ksmLoaded
-      ? 'Check GCHAT_RECORD fields in KSM (google_project_id, google_subscription_id, google_service_account_json).'
-      : 'Copy config.example.yaml to config.yaml and place service-account.json, or set KSM_CONFIG / GCHAT_RECORD.';
+    let hint = '';
+    if (config._ksmConfigured) {
+      if (config._ksmError) {
+        hint = `KSM was configured but failed: ${config._ksmError.message}. Verify KSM_CONFIG, COMMANDER_RECORD, and GCHAT_RECORD are correct and the KSM vault is accessible.`;
+      } else {
+        hint = 'Check GCHAT_RECORD fields in KSM (google_project_id, google_subscription_id, google_service_account_json).';
+      }
+    } else {
+      hint = 'Copy config.example.yaml to config.yaml and place service-account.json, or set KSM_CONFIG / GCHAT_RECORD.';
+    }
     throw new Error(`Missing configuration: ${missing.join(', ')}. ${hint}`);
   }
 }
