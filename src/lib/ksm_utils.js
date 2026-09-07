@@ -123,6 +123,123 @@ function normalizeLabel(label) {
 }
 
 /**
+ * Extract a KSM field that may hold a JSON array/object, preserving
+ * list/dict structure.
+ * @param {object} record
+ * @param {string} fieldLabelPattern
+ */
+function extractJsonLikeFieldValue(record, fieldLabelPattern) {
+  const unwrap = (raw) => {
+    if (raw == null) return null;
+    if (Array.isArray(raw)) {
+      if (raw.length && raw.every((x) => x && typeof x === 'object' && !Array.isArray(x))) {
+        return raw;
+      }
+      if (raw.length > 0) return unwrap(raw[0]);
+      return null;
+    }
+    if (typeof raw === 'object') {
+      if (Object.prototype.hasOwnProperty.call(raw, 'value')) {
+        return unwrap(raw.value);
+      }
+      return raw;
+    }
+    if (typeof raw === 'string') {
+      const text = raw.trim();
+      if (text.startsWith('[') || text.startsWith('{')) {
+        try {
+          return JSON.parse(text);
+        } catch {
+          // fall through
+        }
+      }
+      return text || null;
+    }
+    if (typeof raw === 'number' || typeof raw === 'boolean') return raw;
+    return null;
+  };
+
+  const labels = [
+    fieldLabelPattern,
+    fieldLabelPattern.replace(/_/g, '-'),
+    fieldLabelPattern.replace(/-/g, '_'),
+  ];
+  const seen = new Set();
+  const data = record.data || {};
+  const pools = [...(data.fields || []), ...(data.custom || [])];
+  for (const label of labels) {
+    if (!label || seen.has(label)) continue;
+    seen.add(label);
+    for (const field of pools) {
+      const candidates = [field.label, field.type].filter(Boolean);
+      for (const candidate of candidates) {
+        if (normalizeLabel(candidate) === normalizeLabel(label) || String(candidate) === label) {
+          const value = unwrap(field.value);
+          if (value != null) return value;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Read the approval-teams list from KSM.
+ * @param {object} record
+ * @param {object|null} [notesJson]
+ */
+function resolveApprovalTeamsField(record, notesJson = null) {
+  if (notesJson && typeof notesJson === 'object') {
+    if (notesJson.approvals_teams !== undefined) return notesJson.approvals_teams;
+    if (notesJson.approval_teams !== undefined) return notesJson.approval_teams;
+  }
+  for (const fieldName of ['approvals_teams', 'approval_teams']) {
+    const value = extractJsonLikeFieldValue(record, fieldName);
+    if (value != null) return value;
+  }
+  return null;
+}
+
+/**
+ * Convert the KSM `multi_channel_approvers_enabled` + `approvals_teams`
+ * @param {*} enabledField
+ * @param {*} approvalTeamsField
+ */
+function normalizeApprovalTeamsConfig(enabledField, approvalTeamsField) {
+  if (enabledField == null && approvalTeamsField == null) return null;
+
+  let teamsList = approvalTeamsField;
+  if (typeof teamsList === 'string') {
+    try {
+      teamsList = JSON.parse(teamsList);
+    } catch {
+      teamsList = null;
+    }
+  }
+
+  const normalizedTeams = [];
+  if (Array.isArray(teamsList)) {
+    for (const t of teamsList) {
+      if (!t || typeof t !== 'object') continue;
+      normalizedTeams.push({
+        team_uid: t.team_uid,
+        name: t.name,
+        space_id: t.space_id,
+        allowed_folder_uids: t.folder_uids || [],
+        allowed_record_uids: t.record_uids || [],
+      });
+    }
+  }
+
+  const enabled =
+    typeof enabledField === 'string'
+      ? ['true', '1', 'yes'].includes(enabledField.trim().toLowerCase())
+      : Boolean(enabledField);
+
+  return { enabled, teams: normalizedTeams };
+}
+
+/**
  * Read a standard or custom field by label (and common aliases).
  * @param {object} record - KSM KeeperRecord
  * @param {string} label
@@ -301,12 +418,40 @@ export function mapGchatRecord(record) {
     deviceApproval.polling_interval_in_sec = asInt(deviceInterval, 120);
   }
 
+  // Multi-channel approver KSM shape:
+  let mcEnabledField = extractFieldValue(record, 'multi_channel_approvers_enabled');
+  let approvalTeamsField = resolveApprovalTeamsField(record);
+  let multichannelConfig = null;
+
+  if (notes && typeof notes === 'object' && notes.multichannel_approver !== undefined) {
+    multichannelConfig = notes.multichannel_approver;
+  }
+  if (notes && typeof notes === 'object' && notes.multi_channel_approvers_enabled !== undefined) {
+    mcEnabledField = notes.multi_channel_approvers_enabled;
+  }
+  const resolvedTeams = resolveApprovalTeamsField(record, notes);
+  if (resolvedTeams != null) approvalTeamsField = resolvedTeams;
+
+  const normalizedMc = normalizeApprovalTeamsConfig(mcEnabledField, approvalTeamsField);
+  if (normalizedMc != null) multichannelConfig = normalizedMc;
+
+  if (multichannelConfig != null && typeof multichannelConfig === 'string') {
+    try {
+      multichannelConfig = JSON.parse(multichannelConfig);
+    } catch {
+      multichannelConfig = null;
+    }
+  }
+
   /** @type {Record<string, any>} */
   const out = {};
   if (Object.keys(google).length) out.google = google;
   if (Object.keys(chat).length) out.chat = chat;
   if (Object.keys(epm).length) out.epm = epm;
   if (Object.keys(deviceApproval).length) out.device_approval = deviceApproval;
+  if (multichannelConfig && typeof multichannelConfig === 'object') {
+    out.multichannel_approver = multichannelConfig;
+  }
   return out;
 }
 

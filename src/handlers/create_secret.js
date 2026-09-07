@@ -119,12 +119,14 @@ export async function handleCreateSecret(event, config, chatClient, keeperClient
  * @param {object} config
  * @param {import('../lib/chat_client.js').ChatClient} chatClient
  * @param {import('../lib/keeper/client.js').KeeperClient} keeperClient
+ * @param {import('../lib/approver_boundary.js').ApproverBoundary} [approverBoundary]
  */
 export async function handleCreateSecretCardClick(
   event,
   config,
   chatClient,
   keeperClient,
+  approverBoundary,
 ) {
   const action = event.action || {};
   const params = action.parameters || [];
@@ -138,7 +140,7 @@ export async function handleCreateSecretCardClick(
     return;
   }
   if (method === 'create_secret_submit') {
-    await handleSubmit(event, config, chatClient, keeperClient);
+    await handleSubmit(event, config, chatClient, keeperClient, approverBoundary);
     return;
   }
   if (method === 'create_secret_cancel') {
@@ -257,7 +259,7 @@ async function handleFolderNext(event, chatClient, keeperClient) {
  * @param {import('../lib/chat_client.js').ChatClient} chatClient
  * @param {import('../lib/keeper/client.js').KeeperClient} keeperClient
  */
-async function handleSubmit(event, config, chatClient, keeperClient) {
+async function handleSubmit(event, config, chatClient, keeperClient, approverBoundary) {
   const logger = getLogger();
   const messageName = event.message?.name;
   const params = Object.fromEntries(
@@ -406,9 +408,16 @@ async function handleSubmit(event, config, chatClient, keeperClient) {
         `Record created: ${title}`,
       );
 
-      const approvalsSpace = config.chat?.approvalsSpaceId;
+      const user = event.user || {};
+      let approvalsSpace = config.chat?.approvalsSpaceId;
+      if (approverBoundary) {
+        try {
+          approvalsSpace = await approverBoundary.resolveApprovalChannel(user.email || '');
+        } catch (error) {
+          logger.warn({ err: error }, 'Failed to resolve approval channel; using default');
+        }
+      }
       if (approvalsSpace) {
-        const user = event.user || {};
         const userLabel =
           user.displayName || user.email || user.name || 'Unknown user';
         try {

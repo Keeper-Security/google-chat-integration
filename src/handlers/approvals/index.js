@@ -21,7 +21,13 @@ import {
   handleUpdateSearchSelection,
 } from './search_actions.js';
 
-export async function handleCardClicked(event, chatClient, keeperClient) {
+export async function handleCardClicked(
+  event,
+  chatClient,
+  keeperClient,
+  approverBoundary,
+  approverCatalog,
+) {
   const logger = getLogger();
   const action = event.action || {};
   const params = action.parameters || [];
@@ -40,6 +46,7 @@ export async function handleCardClicked(event, chatClient, keeperClient) {
   const approverEmail = approver.email || approver.displayName || 'approver';
   const approverName = approver.name || '';
   const messageName = event.message?.name || '';
+  const channelId = event.space?.name || '';
 
   if (method === 'deny_request') {
     await handleDeny(actionData, approverEmail, messageName, chatClient);
@@ -57,6 +64,10 @@ export async function handleCardClicked(event, chatClient, keeperClient) {
       messageName,
       chatClient,
       keeperClient,
+      approverBoundary,
+      approverCatalog,
+      channelId,
+      approverEmail,
     );
     return;
   }
@@ -69,6 +80,10 @@ export async function handleCardClicked(event, chatClient, keeperClient) {
       event,
       chatClient,
       keeperClient,
+      approverBoundary,
+      approverCatalog,
+      channelId,
+      approverEmail,
     );
     return;
   }
@@ -81,6 +96,10 @@ export async function handleCardClicked(event, chatClient, keeperClient) {
       event,
       chatClient,
       keeperClient,
+      approverBoundary,
+      approverCatalog,
+      channelId,
+      approverEmail,
     );
     return;
   }
@@ -93,6 +112,10 @@ export async function handleCardClicked(event, chatClient, keeperClient) {
       event,
       chatClient,
       keeperClient,
+      approverBoundary,
+      approverCatalog,
+      channelId,
+      approverEmail,
     );
     return;
   }
@@ -105,6 +128,10 @@ export async function handleCardClicked(event, chatClient, keeperClient) {
       event,
       chatClient,
       keeperClient,
+      approverBoundary,
+      approverCatalog,
+      channelId,
+      approverEmail,
     );
     return;
   }

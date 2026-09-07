@@ -116,6 +116,61 @@ export async function searchVaultItems(actionData, query, keeperClient, limit = 
 }
 
 /**
+ * Multi-channel: renders the approver's team catalog for Search
+ *
+ * @param {import('../../lib/models.js').ApprovalActionData} actionData
+ * @param {string} query
+ * @param {import('../../lib/keeper/client.js').KeeperClient} keeperClient
+ * @param {import('../../lib/approver_boundary.js').ApproverBoundary} [approverBoundary]
+ * @param {import('../../lib/approver_catalog.js').ApproverCatalog} [approverCatalog]
+ * @param {string} [approverEmail]
+ * @param {string} [channelId]
+ * @param {number} [limit]
+ * @param {string} [catalogQuery]
+ * @returns {Promise<{ items: object[], error: object|null, catalogMode: boolean, displayQuery: string }>}
+ */
+export async function searchVaultItemsScoped(
+  actionData,
+  query,
+  keeperClient,
+  approverBoundary,
+  approverCatalog,
+  approverEmail,
+  channelId,
+  limit = SEARCH_RESULT_DISPLAY_LIMIT,
+  catalogQuery = query,
+) {
+  const searchType = actionData.isFolderRequest ? 'folder' : 'record';
+
+  if (approverCatalog) {
+    const catalogItems = await approverCatalog.maybeCatalogFetch(
+      approverEmail,
+      searchType,
+      catalogQuery,
+      channelId,
+    );
+    if (catalogItems !== null) {
+      return { items: catalogItems, error: null, catalogMode: true, displayQuery: catalogQuery };
+    }
+  }
+
+  const result = await searchVaultItems(actionData, query, keeperClient, limit);
+  if (result.error || !approverBoundary) {
+    return { ...result, catalogMode: false, displayQuery: query };
+  }
+
+  const { folderUids, recordUids } = await approverBoundary.resolveAllowedScope(
+    approverEmail,
+    channelId,
+  );
+  const items =
+    searchType === 'folder'
+      ? approverBoundary.filterFolders(result.items, folderUids)
+      : approverBoundary.filterRecords(result.items, recordUids);
+  return { items, error: null, catalogMode: false, displayQuery: query };
+}
+
+/**
  * Probe PAM rotate-on-expire eligibility for a selected folder.
  * Classic and NSF folders both use `list-sf --roe-eligible` — NSF type alone
  * does not imply PAM (and must not skip this probe).

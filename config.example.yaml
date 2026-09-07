@@ -27,6 +27,16 @@ device_approval:
   enabled: false
   polling_interval_in_sec: 120
 
+# Multi-channel approver — route approvals to different spaces per Keeper team.
+# `name` must exactly match the Keeper team name shown by Commander `list-team`.
+multichannel_approver:
+  enabled: false
+  teams:
+    - name: "Sales and Marketing Team"
+      space_id: "spaces/AAAAAAAA"                # Google Chat space for this team's approvals
+    #   allowed_folder_uids: ["folder_uid_1"]   # Optional: limit this team to specific folders
+    #   allowed_record_uids: ["record_uid_1"]   # Optional: limit this team to specific records
+
 # Production (Docker) uses KSM instead of this file:
 #   KSM_CONFIG, COMMANDER_RECORD, GCHAT_RECORD
 # See README → Configuration → Production (KSM)

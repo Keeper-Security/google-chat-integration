@@ -20,8 +20,9 @@ import {
  * @param {object} config
  * @param {import('../lib/chat_client.js').ChatClient} chatClient
  * @param {import('../lib/keeper/client.js').KeeperClient} keeperClient
+ * @param {import('../lib/approver_boundary.js').ApproverBoundary} [approverBoundary]
  */
-export async function handleRequestFolder(event, config, chatClient, keeperClient) {
+export async function handleRequestFolder(event, config, chatClient, keeperClient, approverBoundary) {
   const logger = getLogger();
   const message = event.message || {};
   const user = event.user || {};
@@ -106,13 +107,25 @@ export async function handleRequestFolder(event, config, chatClient, keeperClien
     return;
   }
 
-  if (!config.chat.approvalsSpaceId) {
+  // Resolve approval space (may be team-specific via multi-channel approver)
+  let approvalsSpaceId = config.chat.approvalsSpaceId;
+  if (approverBoundary) {
+    try {
+      approvalsSpaceId = await approverBoundary.resolveApprovalChannel(requesterEmail);
+    } catch (error) {
+      logger.warn({ err: error }, 'Failed to resolve approval channel; using default');
+    }
+  }
+
+  if (!approvalsSpaceId) {
     await replyPrivate(
       chatClient,
       space,
       message,
       requesterUserName,
-      'Approvals space is not configured. Set `chat.approvals_space_id` in config.yaml.',
+      config.ksmLoaded
+        ? 'Approvals space is not configured. Set `chat_approval_space_id` (or `chat_approvals_space_id`) in the GCHAT_RECORD KSM record.'
+        : 'Approvals space is not configured. Set `chat.approvals_space_id` in config.yaml.',
     );
     return;
   }
@@ -143,6 +156,7 @@ export async function handleRequestFolder(event, config, chatClient, keeperClien
       requesterUserName,
       requesterEmail,
       requesterDisplay,
+      approvalsSpaceId,
     );
   } else {
     await handleDescriptionFolderRequest(
@@ -156,6 +170,7 @@ export async function handleRequestFolder(event, config, chatClient, keeperClien
       requesterUserName,
       requesterEmail,
       requesterDisplay,
+      approvalsSpaceId,
     );
   }
 }
@@ -172,6 +187,7 @@ async function handleUidFolderRequest(
   requesterUserName,
   requesterEmail,
   requesterDisplay,
+  approvalsSpaceId,
 ) {
   let folder;
   try {
@@ -271,7 +287,7 @@ async function handleUidFolderRequest(
 
   try {
     await chatClient.postMessage({
-      parent: config.chat.approvalsSpaceId,
+      parent: approvalsSpaceId,
       message: {
         text: `Folder access request ${approvalId}`,
         cardsV2: buildApprovalCard(actionData, { folder }),
@@ -307,6 +323,7 @@ async function handleDescriptionFolderRequest(
   requesterUserName,
   requesterEmail,
   requesterDisplay,
+  approvalsSpaceId,
 ) {
   const approvalId = generateApprovalId();
   const actionData = new ApprovalActionData({
@@ -336,7 +353,7 @@ async function handleDescriptionFolderRequest(
 
   try {
     await chatClient.postMessage({
-      parent: config.chat.approvalsSpaceId,
+      parent: approvalsSpaceId,
       message: {
         text: `Folder access request ${approvalId}`,
         cardsV2: buildApprovalCard(actionData, null),

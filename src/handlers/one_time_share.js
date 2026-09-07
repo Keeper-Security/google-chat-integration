@@ -21,8 +21,9 @@ import {
  * @param {object} config
  * @param {import('../lib/chat_client.js').ChatClient} chatClient
  * @param {import('../lib/keeper/client.js').KeeperClient} keeperClient
+ * @param {import('../lib/approver_boundary.js').ApproverBoundary} [approverBoundary]
  */
-export async function handleOneTimeShare(event, config, chatClient, keeperClient) {
+export async function handleOneTimeShare(event, config, chatClient, keeperClient, approverBoundary) {
   const logger = getLogger();
   const message = event.message || {};
   const user = event.user || {};
@@ -85,13 +86,25 @@ export async function handleOneTimeShare(event, config, chatClient, keeperClient
     return;
   }
 
-  if (!config.chat.approvalsSpaceId) {
+  // Resolve approval space (may be team-specific via multi-channel approver)
+  let approvalsSpaceId = config.chat.approvalsSpaceId;
+  if (approverBoundary) {
+    try {
+      approvalsSpaceId = await approverBoundary.resolveApprovalChannel(requesterEmail);
+    } catch (error) {
+      logger.warn({ err: error }, 'Failed to resolve approval channel; using default');
+    }
+  }
+
+  if (!approvalsSpaceId) {
     await replyPrivate(
       chatClient,
       space,
       message,
       requesterUserName,
-      'Approvals space is not configured. Set `chat.approvals_space_id` in config.yaml.',
+      config.ksmLoaded
+        ? 'Approvals space is not configured. Set `chat_approval_space_id` (or `chat_approvals_space_id`) in the GCHAT_RECORD KSM record.'
+        : 'Approvals space is not configured. Set `chat.approvals_space_id` in config.yaml.',
     );
     return;
   }
@@ -122,6 +135,7 @@ export async function handleOneTimeShare(event, config, chatClient, keeperClient
       requesterUserName,
       requesterEmail,
       requesterDisplay,
+      approvalsSpaceId,
     );
   } else {
     await handleDescriptionOneTimeShare(
@@ -135,6 +149,7 @@ export async function handleOneTimeShare(event, config, chatClient, keeperClient
       requesterUserName,
       requesterEmail,
       requesterDisplay,
+      approvalsSpaceId,
     );
   }
 }
@@ -151,6 +166,7 @@ async function handleUidOneTimeShare(
   requesterUserName,
   requesterEmail,
   requesterDisplay,
+  approvalsSpaceId,
 ) {
   let record;
   try {
@@ -248,7 +264,7 @@ async function handleUidOneTimeShare(
 
   try {
     await chatClient.postMessage({
-      parent: config.chat.approvalsSpaceId,
+      parent: approvalsSpaceId,
       message: {
         text: `External Share request ${approvalId}`,
         cardsV2: buildApprovalCard(actionData, record),
@@ -284,6 +300,7 @@ async function handleDescriptionOneTimeShare(
   requesterUserName,
   requesterEmail,
   requesterDisplay,
+  approvalsSpaceId,
 ) {
   const approvalId = generateApprovalId();
   const actionData = new ApprovalActionData({
@@ -313,7 +330,7 @@ async function handleDescriptionOneTimeShare(
 
   try {
     await chatClient.postMessage({
-      parent: config.chat.approvalsSpaceId,
+      parent: approvalsSpaceId,
       message: {
         text: `External Share request ${approvalId}`,
         cardsV2: buildApprovalCard(actionData, null),

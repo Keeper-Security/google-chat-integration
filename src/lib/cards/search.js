@@ -29,7 +29,10 @@ export function buildSearchResultsCard(actionData, results, options = {}) {
     actionData.duration ||
     '5m';
   const selectedPermission = options.selectedPermission || null;
-  const currentQuery = options.currentQuery || actionData.identifier;
+  // ?? (not ||) so an explicit empty string (e.g. catalog mode showing the
+  // full allowed list) renders an empty box instead of falling back to the
+  // requester's original identifier.
+  const currentQuery = options.currentQuery ?? actionData.identifier;
   const params = actionData.toParameters();
   const showCreateNew = !forFolder && !forOts && !actionData.isUid;
   const isSelfDestruct =
