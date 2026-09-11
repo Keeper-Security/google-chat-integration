@@ -4,6 +4,30 @@
 
 import { getLogger } from './logger.js';
 
+const MAX_CONCURRENCY = 8;
+
+/**
+ * Run `worker` over `items` with at most `limit` concurrent invocations in
+ * flight at any time.
+ * @param {any[]} items
+ * @param {number} limit
+ * @param {(item: any, index: number) => Promise<any>} worker
+ * @returns {Promise<any[]>}
+ */
+async function mapWithConcurrency(items, limit, worker) {
+  const results = new Array(items.length);
+  let cursor = 0;
+  async function runNext() {
+    while (cursor < items.length) {
+      const index = cursor++;
+      results[index] = await worker(items[index], index);
+    }
+  }
+  const workerCount = Math.min(limit, items.length);
+  await Promise.all(Array.from({ length: workerCount }, runNext));
+  return results;
+}
+
 /**
  * Should the caller render a catalog (as opposed to running a Commander
  * search) for this kind?
@@ -15,9 +39,10 @@ export function isCatalogMode(scope) {
 }
 
 /**
- * Fetch each UID in parallel via the given getter on keeperClient.
- * Silently drops UIDs that come back null/undefined (deleted / no access),
- * with a single warn log listing the missing UIDs.
+ * Fetch each UID via the given getter on keeperClient, capped at
+ * MAX_CONCURRENCY in-flight requests at a time. Silently drops UIDs that
+ * come back null/undefined (deleted / no access), with a single warn log
+ * listing the missing UIDs.
  * @param {import('./keeper/client.js').KeeperClient} keeperClient
  * @param {Iterable<string>} uids
  * @param {string} getterName
@@ -48,18 +73,16 @@ async function hydrateKind(keeperClient, uids, getterName, kindLabel) {
   const results = [];
   const missing = [];
 
-  await Promise.all(
-    uidList.map(async (uid) => {
-      try {
-        const item = await fetch.call(keeperClient, uid);
-        if (item == null) missing.push(uid);
-        else results.push(item);
-      } catch (error) {
-        logger.warn({ err: error, uid, kindLabel }, 'Catalog: failed to fetch item');
-        missing.push(uid);
-      }
-    }),
-  );
+  await mapWithConcurrency(uidList, MAX_CONCURRENCY, async (uid) => {
+    try {
+      const item = await fetch.call(keeperClient, uid);
+      if (item == null) missing.push(uid);
+      else results.push(item);
+    } catch (error) {
+      logger.warn({ err: error, uid, kindLabel }, 'Catalog: failed to fetch item');
+      missing.push(uid);
+    }
+  });
 
   if (missing.length) {
     logger.warn(
