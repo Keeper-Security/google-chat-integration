@@ -33,3 +33,7 @@ export {
   buildDeviceApprovalCard,
   buildDeviceStatusCard,
 } from './device.js';
+export {
+  buildRequestFormCard,
+  buildRequestFormSubmittedCard,
+} from './request_form.js';

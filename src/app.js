@@ -18,6 +18,10 @@ import {
 import { handleOneTimeShare } from './handlers/one_time_share.js';
 import { handleRequestFolder } from './handlers/request_folder.js';
 import { handleRequestRecord } from './handlers/request_record.js';
+import {
+  handleRequestFormCardClick,
+  isRequestFormCardAction,
+} from './handlers/request_form.js';
 import { DeviceApprovalPoller } from './background/device_poller.js';
 import { EpmPoller } from './background/epm_poller.js';
 import { ApproverBoundary } from './lib/approver_boundary.js';
@@ -166,6 +170,16 @@ export class KeeperGoogleChatApp {
       if (eventType === 'CARD_CLICKED') {
         if (isCreateSecretCardAction(event)) {
           await handleCreateSecretCardClick(
+            event,
+            this.config,
+            this.chatClient,
+            this.keeperClient,
+            this.approverBoundary,
+          );
+          return;
+        }
+        if (isRequestFormCardAction(event)) {
+          await handleRequestFormCardClick(
             event,
             this.config,
             this.chatClient,

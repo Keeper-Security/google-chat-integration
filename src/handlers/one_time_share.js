@@ -15,6 +15,13 @@ import {
   parseCommandText,
   sanitizeUserInput,
 } from '../lib/utils.js';
+import { openRequestForm } from './request_form.js';
+import {
+  approvalsSpaceMissingMessage,
+  EMAIL_MISSING_MESSAGE,
+  replyPrivate,
+  resolveApprovalSpaceId,
+} from './request_shared.js';
 
 /**
  * @param {object} event
@@ -24,25 +31,14 @@ import {
  * @param {import('../lib/approver_boundary.js').ApproverBoundary} [approverBoundary]
  */
 export async function handleOneTimeShare(event, config, chatClient, keeperClient, approverBoundary) {
-  const logger = getLogger();
   const message = event.message || {};
   const user = event.user || {};
   const space = event.space || {};
   const argumentText = getArgumentText(message);
-  const requesterEmail = user.email || '';
   const requesterUserName = user.name || '';
-  const requesterDisplay = user.displayName || requesterEmail;
 
   if (!argumentText) {
-    await replyPrivate(
-      chatClient,
-      space,
-      message,
-      requesterUserName,
-      'Usage: `/keeper-external-share <record-name-or-uid> <justification>`\n' +
-        'Example: `/keeper-external-share "AWS Production DB" Need temporary share link`\n' +
-        'Example: `/keeper-external-share kR3cF9Xm2Lp8NqT1uV6w Need temporary share link`',
-    );
+    await openRequestForm(chatClient, space, message, requesterUserName, 'one_time_share');
     return;
   }
 
@@ -86,38 +82,46 @@ export async function handleOneTimeShare(event, config, chatClient, keeperClient
     return;
   }
 
-  // Resolve approval space (may be team-specific via multi-channel approver)
-  let approvalsSpaceId = config.chat.approvalsSpaceId;
-  if (approverBoundary) {
-    try {
-      approvalsSpaceId = await approverBoundary.resolveApprovalChannel(requesterEmail);
-    } catch (error) {
-      logger.warn({ err: error }, 'Failed to resolve approval channel; using default');
-    }
-  }
+  await processOneTimeShareRequest(identifier, justification, event, config, chatClient, keeperClient, approverBoundary);
+}
 
+/**
+ * Shared core once identifier/justification are already sanitized —
+ * used by both the inline-args slash command path above and the
+ * request-form card submit handler (src/handlers/request_form.js).
+ * @param {string} identifier
+ * @param {string} justification
+ * @param {object} event
+ * @param {object} config
+ * @param {import('../lib/chat_client.js').ChatClient} chatClient
+ * @param {import('../lib/keeper/client.js').KeeperClient} keeperClient
+ * @param {import('../lib/approver_boundary.js').ApproverBoundary} [approverBoundary]
+ */
+export async function processOneTimeShareRequest(
+  identifier,
+  justification,
+  event,
+  config,
+  chatClient,
+  keeperClient,
+  approverBoundary,
+) {
+  const logger = getLogger();
+  const message = event.message || {};
+  const user = event.user || {};
+  const space = event.space || {};
+  const requesterEmail = user.email || '';
+  const requesterUserName = user.name || '';
+  const requesterDisplay = user.displayName || requesterEmail;
+
+  const approvalsSpaceId = await resolveApprovalSpaceId(config, approverBoundary, requesterEmail);
   if (!approvalsSpaceId) {
-    await replyPrivate(
-      chatClient,
-      space,
-      message,
-      requesterUserName,
-      config.ksmLoaded
-        ? 'Approvals space is not configured. Set `chat_approval_space_id` (or `chat_approvals_space_id`) in the GCHAT_RECORD KSM record.'
-        : 'Approvals space is not configured. Set `chat.approvals_space_id` in config.yaml.',
-    );
+    await replyPrivate(chatClient, space, message, requesterUserName, approvalsSpaceMissingMessage(config));
     return;
   }
 
   if (!requesterEmail) {
-    await replyPrivate(
-      chatClient,
-      space,
-      message,
-      requesterUserName,
-      'Could not resolve your email address from Google Chat. ' +
-        'Ensure the Chat app can read your profile, then try again.',
-    );
+    await replyPrivate(chatClient, space, message, requesterUserName, EMAIL_MISSING_MESSAGE);
     return;
   }
 
@@ -353,14 +357,4 @@ async function handleDescriptionOneTimeShare(
     { approvalId, identifier, isUid: false },
     'Created description-based external share approval request',
   );
-}
-
-async function replyPrivate(chatClient, space, message, viewerName, text) {
-  await chatClient.postMessage({
-    parent: space.name,
-    message: { text },
-    threadName: message.thread?.name || null,
-    privateViewer: viewerName,
-    space,
-  });
 }
