@@ -436,6 +436,43 @@ export class KeeperClient {
     return create.listSubfolders(this, sharedFolderUid);
   }
 
+  /**
+   * Return the Keeper team names that userEmail belongs to, via
+   * `list-team -v --format=json`. Used by multi-channel approver routing
+   * to pick the requester's team approval space.
+   * @param {string} userEmail
+   * @returns {Promise<string[]>}
+   */
+  async getUserTeams(userEmail) {
+    if (!userEmail) return [];
+    const submitted = await this.executeCommandSafe('list-team -v --format=json', 20000);
+    if (!submitted.ok) {
+      this.logger.error(
+        { error: submitted.error, userEmail },
+        'list-team command failed',
+      );
+      throw new Error(
+        submitted.error?.error || submitted.error?.message || 'list-team command failed',
+      );
+    }
+    const data = this.extractRecords(submitted.data);
+    const emailLower = userEmail.trim().toLowerCase();
+    const teams = [];
+    for (const item of data) {
+      if (!item || typeof item !== 'object') continue;
+      const members = Array.isArray(item.Member) ? item.Member : [];
+      const membersLower = new Set(
+        members.filter(Boolean).map((m) => String(m).trim().toLowerCase()),
+      );
+      if (membersLower.has(emailLower)) {
+        const name = item.Name;
+        if (name) teams.push(String(name).trim());
+      }
+    }
+    this.logger.debug({ userEmail, teams }, 'Resolved user teams from Commander');
+    return teams;
+  }
+
   async createRecord({
     title,
     login = null,

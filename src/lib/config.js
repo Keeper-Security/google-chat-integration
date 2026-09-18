@@ -49,6 +49,7 @@ export function buildConfigFromData(fileData = {}, meta = {}) {
   const keeper = fileData.keeper || {};
   const epm = fileData.epm || {};
   const deviceApproval = fileData.device_approval || {};
+  const multiChannelApprover = fileData.multichannel_approver || {};
 
   const credentialsFile = path.resolve(
     google.credentials_file || './service-account.json',
@@ -87,6 +88,10 @@ export function buildConfigFromData(fileData = {}, meta = {}) {
     deviceApproval: {
       enabled: asBool(deviceApproval.enabled, false),
       pollingIntervalInSec: asInt(deviceApproval.polling_interval_in_sec, 120),
+    },
+    multichannel_approver: {
+      enabled: asBool(multiChannelApprover.enabled, false),
+      teams: multiChannelApprover.teams || [],
     },
   };
 }

@@ -11,7 +11,7 @@ import { extractFormValue } from './form_utils.js';
 import {
   resolveFolderPamFlag,
   restoreApprovalCard,
-  searchVaultItems,
+  searchVaultItemsScoped,
 } from './helpers.js';
 
 export async function handleSearchRecords(
@@ -20,6 +20,10 @@ export async function handleSearchRecords(
   messageName,
   chatClient,
   keeperClient,
+  approverBoundary,
+  approverCatalog,
+  channelId,
+  approverEmail,
 ) {
   const logger = getLogger();
   const query = actionData.identifier;
@@ -41,10 +45,25 @@ export async function handleSearchRecords(
 
   let items = [];
   let error = null;
+  let displayQuery = query;
   try {
-    const result = await searchVaultItems(actionData, query, keeperClient);
+    // Empty catalogQuery: on this initial "Search" click, catalog mode should
+    // show the approver's FULL allowed list rather than filtering by the
+    // requester's original identifie
+    const result = await searchVaultItemsScoped(
+      actionData,
+      query,
+      keeperClient,
+      approverBoundary,
+      approverCatalog,
+      approverEmail,
+      channelId,
+      undefined,
+      '',
+    );
     items = result.items;
     error = result.error;
+    displayQuery = result.displayQuery;
   } catch (err) {
     logger.error({ err, query }, 'Search failed');
     const errText = err.message || 'Unknown error';
@@ -87,8 +106,8 @@ export async function handleSearchRecords(
 
   if (messageName) {
     await chatClient.patchMessage(messageName, {
-      text: `Search results for "${query}" (${items.length} found)`,
-      cardsV2: buildSearchResultsCard(actionData, items, { isPamFolder }),
+      text: `Search results for "${displayQuery}" (${items.length} found)`,
+      cardsV2: buildSearchResultsCard(actionData, items, { isPamFolder, currentQuery: displayQuery }),
     });
   }
 }
@@ -104,6 +123,10 @@ export async function handleUpdateSearchSelection(
   event,
   chatClient,
   keeperClient,
+  approverBoundary,
+  approverCatalog,
+  channelId,
+  approverEmail,
 ) {
   const logger = getLogger();
   const query =
@@ -116,7 +139,15 @@ export async function handleUpdateSearchSelection(
 
   let items = [];
   try {
-    const result = await searchVaultItems(actionData, query, keeperClient);
+    const result = await searchVaultItemsScoped(
+      actionData,
+      query,
+      keeperClient,
+      approverBoundary,
+      approverCatalog,
+      approverEmail,
+      channelId,
+    );
     items = result.items;
     if (result.error) {
       await chatClient.sendDm(
@@ -176,6 +207,10 @@ export async function handleUpdatePermissionSelection(
   event,
   chatClient,
   keeperClient,
+  approverBoundary,
+  approverCatalog,
+  channelId,
+  approverEmail,
 ) {
   const logger = getLogger();
   const selectedPermission = extractFormValue(event, 'permission');
@@ -200,6 +235,10 @@ export async function handleUpdatePermissionSelection(
       event,
       chatClient,
       keeperClient,
+      approverBoundary,
+      approverCatalog,
+      channelId,
+      approverEmail,
     );
     return;
   }
@@ -249,6 +288,10 @@ export async function handleResyncVault(
   event,
   chatClient,
   keeperClient,
+  approverBoundary,
+  approverCatalog,
+  channelId,
+  approverEmail,
 ) {
   const logger = getLogger();
   const query =
@@ -287,7 +330,15 @@ export async function handleResyncVault(
 
   let items = [];
   try {
-    const result = await searchVaultItems(actionData, query, keeperClient);
+    const result = await searchVaultItemsScoped(
+      actionData,
+      query,
+      keeperClient,
+      approverBoundary,
+      approverCatalog,
+      approverEmail,
+      channelId,
+    );
     items = result.items;
     if (result.error) {
       await chatClient.sendDm(
@@ -349,6 +400,10 @@ export async function handleRefineSearch(
   event,
   chatClient,
   keeperClient,
+  approverBoundary,
+  approverCatalog,
+  channelId,
+  approverEmail,
 ) {
   const logger = getLogger();
   const newQuery =
@@ -373,7 +428,15 @@ export async function handleRefineSearch(
   let items = [];
   let error = null;
   try {
-    const result = await searchVaultItems(actionData, newQuery, keeperClient);
+    const result = await searchVaultItemsScoped(
+      actionData,
+      newQuery,
+      keeperClient,
+      approverBoundary,
+      approverCatalog,
+      approverEmail,
+      channelId,
+    );
     items = result.items;
     error = result.error;
   } catch (err) {

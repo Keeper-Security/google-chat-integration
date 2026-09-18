@@ -14,33 +14,30 @@ import {
   parseCommandText,
   sanitizeUserInput,
 } from '../lib/utils.js';
+import { openRequestForm } from './request_form.js';
+import {
+  approvalsSpaceMissingMessage,
+  EMAIL_MISSING_MESSAGE,
+  replyPrivate,
+  resolveApprovalSpaceId,
+} from './request_shared.js';
 
 /**
  * @param {object} event
  * @param {object} config
  * @param {import('../lib/chat_client.js').ChatClient} chatClient
  * @param {import('../lib/keeper/client.js').KeeperClient} keeperClient
+ * @param {import('../lib/approver_boundary.js').ApproverBoundary} [approverBoundary]
  */
-export async function handleRequestFolder(event, config, chatClient, keeperClient) {
-  const logger = getLogger();
+export async function handleRequestFolder(event, config, chatClient, keeperClient, approverBoundary) {
   const message = event.message || {};
   const user = event.user || {};
   const space = event.space || {};
   const argumentText = getArgumentText(message);
-  const requesterEmail = user.email || '';
   const requesterUserName = user.name || '';
-  const requesterDisplay = user.displayName || requesterEmail;
 
   if (!argumentText) {
-    await replyPrivate(
-      chatClient,
-      space,
-      message,
-      requesterUserName,
-      'Usage: `/keeper-request-folder <folder-name-or-uid> <justification>`\n' +
-        'Example: `/keeper-request-folder "Engineering Creds" Project onboarding`\n' +
-        'Example: `/keeper-request-folder AbcDef1234567890AbCdEf Need access for onboarding`',
-    );
+    await openRequestForm(chatClient, space, message, requesterUserName, 'folder');
     return;
   }
 
@@ -106,26 +103,46 @@ export async function handleRequestFolder(event, config, chatClient, keeperClien
     return;
   }
 
-  if (!config.chat.approvalsSpaceId) {
-    await replyPrivate(
-      chatClient,
-      space,
-      message,
-      requesterUserName,
-      'Approvals space is not configured. Set `chat.approvals_space_id` in config.yaml.',
-    );
+  await processFolderRequest(identifier, justification, event, config, chatClient, keeperClient, approverBoundary);
+}
+
+/**
+ * Shared core once identifier/justification are already sanitized —
+ * used by both the inline-args slash command path above and the
+ * request-form card submit handler (src/handlers/request_form.js).
+ * @param {string} identifier
+ * @param {string} justification
+ * @param {object} event
+ * @param {object} config
+ * @param {import('../lib/chat_client.js').ChatClient} chatClient
+ * @param {import('../lib/keeper/client.js').KeeperClient} keeperClient
+ * @param {import('../lib/approver_boundary.js').ApproverBoundary} [approverBoundary]
+ */
+export async function processFolderRequest(
+  identifier,
+  justification,
+  event,
+  config,
+  chatClient,
+  keeperClient,
+  approverBoundary,
+) {
+  const logger = getLogger();
+  const message = event.message || {};
+  const user = event.user || {};
+  const space = event.space || {};
+  const requesterEmail = user.email || '';
+  const requesterUserName = user.name || '';
+  const requesterDisplay = user.displayName || requesterEmail;
+
+  const approvalsSpaceId = await resolveApprovalSpaceId(config, approverBoundary, requesterEmail);
+  if (!approvalsSpaceId) {
+    await replyPrivate(chatClient, space, message, requesterUserName, approvalsSpaceMissingMessage(config));
     return;
   }
 
   if (!requesterEmail) {
-    await replyPrivate(
-      chatClient,
-      space,
-      message,
-      requesterUserName,
-      'Could not resolve your email address from Google Chat. ' +
-        'Ensure the Chat app can read your profile, then try again.',
-    );
+    await replyPrivate(chatClient, space, message, requesterUserName, EMAIL_MISSING_MESSAGE);
     return;
   }
 
@@ -143,6 +160,7 @@ export async function handleRequestFolder(event, config, chatClient, keeperClien
       requesterUserName,
       requesterEmail,
       requesterDisplay,
+      approvalsSpaceId,
     );
   } else {
     await handleDescriptionFolderRequest(
@@ -156,6 +174,7 @@ export async function handleRequestFolder(event, config, chatClient, keeperClien
       requesterUserName,
       requesterEmail,
       requesterDisplay,
+      approvalsSpaceId,
     );
   }
 }
@@ -172,6 +191,7 @@ async function handleUidFolderRequest(
   requesterUserName,
   requesterEmail,
   requesterDisplay,
+  approvalsSpaceId,
 ) {
   let folder;
   try {
@@ -271,7 +291,7 @@ async function handleUidFolderRequest(
 
   try {
     await chatClient.postMessage({
-      parent: config.chat.approvalsSpaceId,
+      parent: approvalsSpaceId,
       message: {
         text: `Folder access request ${approvalId}`,
         cardsV2: buildApprovalCard(actionData, { folder }),
@@ -307,6 +327,7 @@ async function handleDescriptionFolderRequest(
   requesterUserName,
   requesterEmail,
   requesterDisplay,
+  approvalsSpaceId,
 ) {
   const approvalId = generateApprovalId();
   const actionData = new ApprovalActionData({
@@ -336,7 +357,7 @@ async function handleDescriptionFolderRequest(
 
   try {
     await chatClient.postMessage({
-      parent: config.chat.approvalsSpaceId,
+      parent: approvalsSpaceId,
       message: {
         text: `Folder access request ${approvalId}`,
         cardsV2: buildApprovalCard(actionData, null),
@@ -359,14 +380,4 @@ async function handleDescriptionFolderRequest(
     { approvalId, identifier, isUid: false },
     'Created description-based folder approval request',
   );
-}
-
-async function replyPrivate(chatClient, space, message, viewerName, text) {
-  await chatClient.postMessage({
-    parent: space.name,
-    message: { text },
-    threadName: message.thread?.name || null,
-    privateViewer: viewerName,
-    space,
-  });
 }

@@ -1,6 +1,6 @@
 /**
  * Handle /keeper-request-record slash command.
- * Supports UID-based and description-based (search) requests â€
+ * Supports UID-based and description-based (search) requests ï¿½
  */
 
 import { buildApprovalCard } from '../lib/cards/index.js';
@@ -15,33 +15,30 @@ import {
   parseCommandText,
   sanitizeUserInput,
 } from '../lib/utils.js';
+import { openRequestForm } from './request_form.js';
+import {
+  approvalsSpaceMissingMessage,
+  EMAIL_MISSING_MESSAGE,
+  replyPrivate,
+  resolveApprovalSpaceId,
+} from './request_shared.js';
 
 /**
  * @param {object} event
  * @param {object} config
  * @param {import('../lib/chat_client.js').ChatClient} chatClient
  * @param {import('../lib/keeper/client.js').KeeperClient} keeperClient
+ * @param {import('../lib/approver_boundary.js').ApproverBoundary} [approverBoundary]
  */
-export async function handleRequestRecord(event, config, chatClient, keeperClient) {
-  const logger = getLogger();
+export async function handleRequestRecord(event, config, chatClient, keeperClient, approverBoundary) {
   const message = event.message || {};
   const user = event.user || {};
   const space = event.space || {};
   const argumentText = getArgumentText(message);
-  const requesterEmail = user.email || '';
   const requesterUserName = user.name || '';
-  const requesterDisplay = user.displayName || requesterEmail;
 
   if (!argumentText) {
-    await replyPrivate(
-      chatClient,
-      space,
-      message,
-      requesterUserName,
-      'Usage: `/keeper-request-record <record-name-or-uid> <justification>`\n' +
-        'Example: `/keeper-request-record "AWS Production DB" Need access for deployment`\n' +
-        'Example: `/keeper-request-record kR3cF9Xm2Lp8NqT1uV6w Need access for deployment`',
-    );
+    await openRequestForm(chatClient, space, message, requesterUserName, 'record');
     return;
   }
 
@@ -101,26 +98,46 @@ export async function handleRequestRecord(event, config, chatClient, keeperClien
     return;
   }
 
-  if (!config.chat.approvalsSpaceId) {
-    await replyPrivate(
-      chatClient,
-      space,
-      message,
-      requesterUserName,
-      'Approvals space is not configured. Set `chat.approvals_space_id` in config.yaml.',
-    );
+  await processRecordRequest(identifier, justification, event, config, chatClient, keeperClient, approverBoundary);
+}
+
+/**
+ * Shared core once identifier/justification are already sanitized â€”
+ * used by both the inline-args slash command path above and the
+ * request-form card submit handler (src/handlers/request_form.js).
+ * @param {string} identifier
+ * @param {string} justification
+ * @param {object} event
+ * @param {object} config
+ * @param {import('../lib/chat_client.js').ChatClient} chatClient
+ * @param {import('../lib/keeper/client.js').KeeperClient} keeperClient
+ * @param {import('../lib/approver_boundary.js').ApproverBoundary} [approverBoundary]
+ */
+export async function processRecordRequest(
+  identifier,
+  justification,
+  event,
+  config,
+  chatClient,
+  keeperClient,
+  approverBoundary,
+) {
+  const logger = getLogger();
+  const message = event.message || {};
+  const user = event.user || {};
+  const space = event.space || {};
+  const requesterEmail = user.email || '';
+  const requesterUserName = user.name || '';
+  const requesterDisplay = user.displayName || requesterEmail;
+
+  const approvalsSpaceId = await resolveApprovalSpaceId(config, approverBoundary, requesterEmail);
+  if (!approvalsSpaceId) {
+    await replyPrivate(chatClient, space, message, requesterUserName, approvalsSpaceMissingMessage(config));
     return;
   }
 
   if (!requesterEmail) {
-    await replyPrivate(
-      chatClient,
-      space,
-      message,
-      requesterUserName,
-      'Could not resolve your email address from Google Chat. ' +
-        'Ensure the Chat app can read your profile, then try again.',
-    );
+    await replyPrivate(chatClient, space, message, requesterUserName, EMAIL_MISSING_MESSAGE);
     return;
   }
 
@@ -139,6 +156,7 @@ export async function handleRequestRecord(event, config, chatClient, keeperClien
       requesterUserName,
       requesterEmail,
       requesterDisplay,
+      approvalsSpaceId,
     );
   } else {
     await handleDescriptionRequest(
@@ -152,6 +170,7 @@ export async function handleRequestRecord(event, config, chatClient, keeperClien
       requesterUserName,
       requesterEmail,
       requesterDisplay,
+      approvalsSpaceId,
     );
   }
 }
@@ -168,6 +187,7 @@ async function handleUidRequest(
   requesterUserName,
   requesterEmail,
   requesterDisplay,
+  approvalsSpaceId,
 ) {
   let record;
   try {
@@ -237,7 +257,7 @@ async function handleUidRequest(
 
   try {
     await chatClient.postMessage({
-      parent: config.chat.approvalsSpaceId,
+      parent: approvalsSpaceId,
       message: {
         text: `Record access request ${approvalId}`,
         cardsV2: buildApprovalCard(actionData, record),
@@ -273,6 +293,7 @@ async function handleDescriptionRequest(
   requesterUserName,
   requesterEmail,
   requesterDisplay,
+  approvalsSpaceId,
 ) {
   const approvalId = generateApprovalId();
   const actionData = new ApprovalActionData({
@@ -302,7 +323,7 @@ async function handleDescriptionRequest(
 
   try {
     await chatClient.postMessage({
-      parent: config.chat.approvalsSpaceId,
+      parent: approvalsSpaceId,
       message: {
         text: `Record access request ${approvalId}`,
         cardsV2: buildApprovalCard(actionData, null),
@@ -322,14 +343,4 @@ async function handleDescriptionRequest(
   }
 
   logger.debug({ approvalId, identifier, isUid: false }, 'Created description-based approval request');
-}
-
-async function replyPrivate(chatClient, space, message, viewerName, text) {
-  await chatClient.postMessage({
-    parent: space.name,
-    message: { text },
-    threadName: message.thread?.name || null,
-    privateViewer: viewerName,
-    space,
-  });
 }

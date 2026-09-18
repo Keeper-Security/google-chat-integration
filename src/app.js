@@ -18,8 +18,14 @@ import {
 import { handleOneTimeShare } from './handlers/one_time_share.js';
 import { handleRequestFolder } from './handlers/request_folder.js';
 import { handleRequestRecord } from './handlers/request_record.js';
+import {
+  handleRequestFormCardClick,
+  isRequestFormCardAction,
+} from './handlers/request_form.js';
 import { DeviceApprovalPoller } from './background/device_poller.js';
 import { EpmPoller } from './background/epm_poller.js';
+import { ApproverBoundary } from './lib/approver_boundary.js';
+import { ApproverCatalog } from './lib/approver_catalog.js';
 import { ChatClient } from './lib/chat_client.js';
 import {
   isCreateSecretCardAction,
@@ -31,16 +37,73 @@ import {
 import { KeeperClient } from './lib/keeper/client.js';
 import { getLogger } from './lib/logger.js';
 
+/**
+ * Emit a one-shot startup summary of multi-channel approver + scope state.
+ * @param {import('./lib/logger.js').Logger} logger
+ * @param {object} config
+ */
+function logMultiChannelSummary(logger, config) {
+  const defaultChannel = config.chat?.approvalsSpaceId || '';
+  const mc = config.multichannel_approver || {};
+  const enabled = Boolean(mc.enabled);
+
+  if (!enabled) {
+    logger.info(
+      { defaultChannel },
+      `Multi-channel approver: disabled -> all requests route to default channel ${defaultChannel}`,
+    );
+    return;
+  }
+
+  const teams = (mc.teams || []).filter((t) => t && typeof t === 'object');
+  const scopedTeams = teams.filter(
+    (t) => (t.allowed_folder_uids || []).length || (t.allowed_record_uids || []).length,
+  ).length;
+
+  if (scopedTeams === 0) {
+    logger.info(
+      `Multi-channel approver: enabled, ${teams.length} team(s) mapped, scoping OFF (no UIDs configured -> routing-only mode)`,
+    );
+  } else {
+    logger.info(
+      `Multi-channel approver: enabled, ${teams.length} team(s) mapped, scoping ON (${scopedTeams} team(s) with UIDs)`,
+    );
+  }
+
+  for (const team of teams) {
+    const name = String(team.name || '').trim() || '<unnamed>';
+    const channelId = String(team.space_id || '').trim() || '<no space>';
+    const folderUids = team.allowed_folder_uids || [];
+    const recordUids = team.allowed_record_uids || [];
+    if (folderUids.length || recordUids.length) {
+      logger.info(
+        `  - ${name} -> ${channelId} (folders=${folderUids.length}, records=${recordUids.length})`,
+      );
+    } else {
+      logger.info(`  - ${name} -> ${channelId} (no UIDs -> routing-only)`);
+    }
+  }
+
+  logger.info(`Default approval channel (fallback): ${defaultChannel}`);
+}
+
 export class KeeperGoogleChatApp {
   /**
  * @param {ReturnType<import('./lib/config.js').loadConfig>} config
- * @param {{ chatClient?: ChatClient, keeperClient?: KeeperClient }} [deps]
+ * @param {{ chatClient?: ChatClient, keeperClient?: KeeperClient, approverBoundary?: ApproverBoundary, approverCatalog?: ApproverCatalog }} [deps]
  */
   constructor(config, deps = {}) {
     this.config = config;
     this.logger = getLogger();
     this.chatClient = deps.chatClient || new ChatClient(config.google.credentialsFile);
     this.keeperClient = deps.keeperClient || new KeeperClient(config.keeper);
+    this.approverBoundary =
+      deps.approverBoundary || new ApproverBoundary(config, this.keeperClient);
+    this.approverCatalog =
+      deps.approverCatalog || new ApproverCatalog(this.approverBoundary, this.keeperClient);
+
+    logMultiChannelSummary(this.logger, this.config);
+
     this.epmPoller = new EpmPoller({
       chatClient: this.chatClient,
       keeperClient: this.keeperClient,
@@ -111,6 +174,17 @@ export class KeeperGoogleChatApp {
             this.config,
             this.chatClient,
             this.keeperClient,
+            this.approverBoundary,
+          );
+          return;
+        }
+        if (isRequestFormCardAction(event)) {
+          await handleRequestFormCardClick(
+            event,
+            this.config,
+            this.chatClient,
+            this.keeperClient,
+            this.approverBoundary,
           );
           return;
         }
@@ -138,7 +212,13 @@ export class KeeperGoogleChatApp {
           }
           return;
         }
-        await handleCardClicked(event, this.chatClient, this.keeperClient);
+        await handleCardClicked(
+          event,
+          this.chatClient,
+          this.keeperClient,
+          this.approverBoundary,
+          this.approverCatalog,
+        );
         return;
       }
       if (eventType === 'ADDED_TO_SPACE') {
@@ -159,15 +239,33 @@ export class KeeperGoogleChatApp {
   async handleMessage(event) {
     const message = event.message || {};
     if (isRequestRecordCommand(message, this.config.chat.commandRequestRecordId)) {
-      await handleRequestRecord(event, this.config, this.chatClient, this.keeperClient);
+      await handleRequestRecord(
+        event,
+        this.config,
+        this.chatClient,
+        this.keeperClient,
+        this.approverBoundary,
+      );
       return;
     }
     if (isRequestFolderCommand(message, this.config.chat.commandRequestFolderId)) {
-      await handleRequestFolder(event, this.config, this.chatClient, this.keeperClient);
+      await handleRequestFolder(
+        event,
+        this.config,
+        this.chatClient,
+        this.keeperClient,
+        this.approverBoundary,
+      );
       return;
     }
     if (isOneTimeShareCommand(message, this.config.chat.commandOneTimeShareId)) {
-      await handleOneTimeShare(event, this.config, this.chatClient, this.keeperClient);
+      await handleOneTimeShare(
+        event,
+        this.config,
+        this.chatClient,
+        this.keeperClient,
+        this.approverBoundary,
+      );
       return;
     }
     if (isCreateSecretCommand(message, this.config.chat.commandCreateSecretId)) {
