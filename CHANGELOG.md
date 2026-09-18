@@ -26,6 +26,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - The record, folder, and external-share request handlers now share a single request path.
 
+### Security
+
+- Updated `js-yaml` to 4.3.2.
+
 ## [1.0.0] - 2026-08-27
 
 Initial release.
