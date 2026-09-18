@@ -5,6 +5,15 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] - 2026-09-18
+
+### Fixed
+
+- A Keeper Secrets Manager failure at startup no longer reports misleading local-configuration
+  advice. The startup error now distinguishes "KSM was never configured" from "KSM was configured
+  and failed", and includes the underlying KSM error, so an operator running with `KSM_CONFIG` set
+  is no longer told to set it (#11).
+
 ## [1.1.0] - 2026-09-18
 
 ### Added
@@ -48,5 +57,6 @@ Initial release.
 - Multi-architecture container image published to `keeper/gchat-app` for `linux/amd64` and
   `linux/arm64`.
 
+[1.1.1]: https://github.com/Keeper-Security/google-chat-integration/releases/tag/v1.1.1
 [1.1.0]: https://github.com/Keeper-Security/google-chat-integration/releases/tag/v1.1.0
 [1.0.0]: https://github.com/Keeper-Security/google-chat-integration/releases/tag/v1.0.0
