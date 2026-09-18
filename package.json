@@ -1,6 +1,6 @@
 {
   "name": "keeper-google-chat-integration",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Self-hosted Keeper Google Chat App for secure credential access requests and approval workflows",
   "main": "src/index.js",
   "type": "module",
