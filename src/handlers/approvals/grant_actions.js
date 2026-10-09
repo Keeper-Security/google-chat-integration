@@ -37,7 +37,7 @@ import {
 } from '../../lib/utils.js';
 
 import { extractFormValue, extractFormValues } from './form_utils.js';
-import { resolveFolderPamFlag, restoreApprovalCard } from './helpers.js';
+import { blockSelfApproval, resolveFolderPamFlag, restoreApprovalCard } from './helpers.js';
 
 export async function handleApproveSearchResult(
   actionData,
@@ -173,6 +173,11 @@ export async function grantAndNotify(
   chatClient,
   keeperClient,
 ) {
+
+  if (await blockSelfApproval(actionData, approverName, chatClient)) {
+    return;
+  }
+
   const logger = getLogger();
   const forFolder = actionData.isFolderRequest;
   const forOts = actionData.isOneTimeShareRequest;

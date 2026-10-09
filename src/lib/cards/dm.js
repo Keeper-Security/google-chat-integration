@@ -4,19 +4,39 @@
 
 import { BTN, escapeHtmlAttr, escapeHtmlText } from './shared.js';
 
-import { formatPermissionName } from '../utils.js';
+import { formatPermissionName, isValidUid, sanitizeHyperlinks } from '../utils.js';
 
 /**
- * Keeper vault deep link for records/folders 
+ * HTML-escape AND strip URL-forming chars — see approval.js's safeText()
+ * for why escaping alone is insufficient (KGC-26-06): a well-formed bare
+ * URL still renders as a clickable link via Chat's own link
+ * auto-detection even when properly HTML-escaped.
+ * @param {unknown} value
+ */
+function safeText(value) {
+  return escapeHtmlText(sanitizeHyperlinks(String(value ?? '')));
+}
+
+/**
+ * Keeper vault deep link for records/folders.
+ *
+ * validates uid against the real Keeper UID shape before
+ * building any link, independent of whatever gating a caller already did —
+ * a vault deep link is only ever meaningful for a genuine UID anyway, and
+ * this redundant check means a future caller that forgets to validate
+ * upstream still can't get a non-UID string into the URL path.
  * @param {'record'|'folder'} itemType
  * @param {string} uid
  * @param {string} [serverDomain]
+ * @returns {string|null} - null when uid isn't a valid Keeper UID
  */
 export function getVaultDeepLink(itemType, uid, serverDomain = 'keepersecurity.com') {
+  const safeUid = String(uid || '').trim();
+  if (!isValidUid(safeUid)) return null;
+
   const domain = String(serverDomain || 'keepersecurity.com')
     .replace(/^https?:\/\//, '')
     .replace(/\/$/, '');
-  const safeUid = String(uid || '').trim();
   if (itemType === 'folder') {
     return `https://${domain}/vault/#shared_folder/${safeUid}`;
   }
@@ -36,7 +56,13 @@ export function buildAccessGrantedDm(approvalId, recordUid, permission, expiresA
     recordUid,
     extras.serverDomain,
   );
-  const linkHtml = `<a href="${escapeHtmlAttr(deepLink)}">Open in Vault</a>`;
+  // deepLink is null when recordUid isn't a real Keeper UID (shouldn't
+  // happen on the grant path, which is gated upstream, but getVaultDeepLink
+  // fails closed regardless — KGC-26-06) — omit the link line/button
+  // entirely rather than ever rendering a broken or malformed URL.
+  const linkLine = deepLink
+    ? `<b>${itemLabel} Link:</b> <a href="${escapeHtmlAttr(deepLink)}">Open in Vault</a><br>`
+    : '';
   const rotateNote = extras.rotateOnExpire
     ? '<br><b>Credentials will rotate when access expires.</b>'
     : '';
@@ -53,8 +79,8 @@ export function buildAccessGrantedDm(approvalId, recordUid, permission, expiresA
       textParagraph: {
         text:
           `<b>Request ID:</b> <code>${approvalId}</code><br>` +
-          `<b>${itemLabel}:</b> ${escapeHtmlText(itemTitle)}<br>` +
-          `<b>${itemLabel} Link:</b> ${linkHtml}<br>` +
+          `<b>${itemLabel}:</b> ${safeText(itemTitle)}<br>` +
+          linkLine +
           `<b>Permission:</b> ${formatPermissionName(permission)}<br>` +
           `<b>Expires:</b> ${expiresAt}` +
           rotateNote +
@@ -62,7 +88,10 @@ export function buildAccessGrantedDm(approvalId, recordUid, permission, expiresA
           selfDestructNote,
       },
     },
-    {
+  ];
+
+  if (deepLink) {
+    widgets.push({
       buttonList: {
         buttons: [
           {
@@ -74,8 +103,8 @@ export function buildAccessGrantedDm(approvalId, recordUid, permission, expiresA
           },
         ],
       },
-    },
-  ];
+    });
+  }
 
   return [
     {
@@ -104,7 +133,7 @@ export function buildOneTimeShareDm(approvalId, recordUid, permission, expiresAt
       textParagraph: {
         text:
           `<b>Request ID:</b> <code>${approvalId}</code><br>` +
-          `<b>Record:</b> <code>${recordUid}</code><br>` +
+          `<b>Record:</b> <code>${safeText(recordUid)}</code><br>` +
           `<b>Permission:</b> ${formatPermissionName(permission)}<br>` +
           `<b>Expires:</b> ${expiresAt}<br><br>` +
           `<b>Share link:</b><br>${linkHtml}<br><br>` +
@@ -164,7 +193,7 @@ export function buildAccessDeniedDm(approvalId, recordUid, extras = {}) {
                   text:
                     `<b>Request ID:</b> <code>${approvalId}</code><br>` +
                     `${itemWord} access request was denied by ${escapeHtmlText(deniedBy)}.<br><br>` +
-                    `<b>${itemLabel}:</b> <code>${recordUid}</code><br><br>` +
+                    `<b>${itemLabel}:</b> <code>${safeText(recordUid)}</code><br><br>` +
                     'If you believe this was in error, please contact your manager or the security team.',
                 },
               },

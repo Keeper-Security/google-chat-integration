@@ -12,6 +12,7 @@ import {
 import { ApprovalActionData, encodeSearchItemValue, KeeperRecord } from '../../lib/models.js';
 import { getLogger } from '../../lib/logger.js';
 import {
+  sanitizeHyperlinks,
   sanitizeMentions,
   sanitizeUserInput,
   MAX_IDENTIFIER_LENGTH,
@@ -230,7 +231,7 @@ export async function handleSubmitCreateRecord(
 
   if (messageName) {
     await chatClient.patchMessage(messageName, {
-      text: `Creating record "${title}"…`,
+      text: `Creating record "${sanitizeHyperlinks(title)}"…`,
       cardsV2: buildLoadingCard(actionData, {
         title: `Creating record "${title}"…`,
         detail: useClassic
@@ -299,12 +300,12 @@ export async function handleSubmitCreateRecord(
   if (!recordUid || recordUid === 'Unknown') {
     await chatClient.sendDm(
       approverName,
-      `Record "${title}" was created but its UID could not be retrieved. ` +
+      `Record "${sanitizeHyperlinks(title)}" was created but its UID could not be retrieved. ` +
         'Use Re-sync Vault and Refine Search to find it.',
     );
     if (messageName) {
       await chatClient.patchMessage(messageName, {
-        text: `Search results for "${title}"`,
+        text: `Search results for "${sanitizeHyperlinks(title)}"`,
         cardsV2: buildSearchResultsCard(actionData, [], {
           currentQuery: title,
         }),
@@ -355,7 +356,7 @@ export async function handleSubmitCreateRecord(
 
   if (messageName) {
     await chatClient.patchMessage(messageName, {
-      text: `Search results for "${title}" (1 found)`,
+      text: `Search results for "${sanitizeHyperlinks(title)}" (1 found)`,
       cardsV2: buildSearchResultsCard(
         updatedActionData,
         [newlyCreatedRecord],
@@ -388,7 +389,7 @@ export async function handleCancelCreateRecord(
 
   if (messageName) {
     await chatClient.patchMessage(messageName, {
-      text: `Searching for "${query}"…`,
+      text: `Searching for "${sanitizeHyperlinks(query)}"…`,
       cardsV2: buildLoadingCard(actionData, {
         title: `Searching Keeper Vault for "${query}"…`,
         detail: 'Please wait while records are being fetched.',
@@ -406,7 +407,7 @@ export async function handleCancelCreateRecord(
 
   if (messageName) {
     await chatClient.patchMessage(messageName, {
-      text: `Search results for "${query}" (${records.length} found)`,
+      text: `Search results for "${sanitizeHyperlinks(query)}" (${records.length} found)`,
       cardsV2: buildSearchResultsCard(actionData, records, {
         currentQuery: query,
       }),

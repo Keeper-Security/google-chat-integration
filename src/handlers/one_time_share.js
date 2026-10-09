@@ -13,6 +13,7 @@ import {
   MAX_IDENTIFIER_LENGTH,
   MAX_JUSTIFICATION_LENGTH,
   parseCommandText,
+  sanitizeHyperlinks,
   sanitizeUserInput,
 } from '../lib/utils.js';
 import { openRequestForm } from './request_form.js';
@@ -59,7 +60,7 @@ export async function handleOneTimeShare(event, config, chatClient, keeperClient
       space,
       message,
       requesterUserName,
-      `Justification is required.\n\nUsage: \`/keeper-external-share "${rawIdentifier}" Your justification here\``,
+      `Justification is required.\n\nUsage: \`/keeper-external-share "${sanitizeHyperlinks(rawIdentifier)}" Your justification here\``,
     );
     return;
   }
@@ -113,6 +114,9 @@ export async function processOneTimeShareRequest(
   const requesterEmail = user.email || '';
   const requesterUserName = user.name || '';
   const requesterDisplay = user.displayName || requesterEmail;
+
+
+  justification = sanitizeHyperlinks(justification);
 
   const approvalsSpaceId = await resolveApprovalSpaceId(config, approverBoundary, requesterEmail);
   if (!approvalsSpaceId) {
@@ -326,7 +330,7 @@ async function handleDescriptionOneTimeShare(
     requesterUserName,
     'External Share request submitted.\n\n' +
       `Request ID: \`${approvalId}\`\n` +
-      `Search term: \`${identifier}\`\n` +
+      `Search term: \`${sanitizeHyperlinks(identifier)}\`\n` +
       `Justification: ${justification}\n\n` +
       'An approver will search and select the correct record.\n' +
       'Once approved, the external share link will be sent to you via DM.',

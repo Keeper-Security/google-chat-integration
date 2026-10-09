@@ -6,6 +6,36 @@ import { buildApprovalCard, SEARCH_RESULT_DISPLAY_LIMIT } from '../../lib/cards/
 import { getLogger } from '../../lib/logger.js';
 import { ApprovalActionData, RequestType } from '../../lib/models.js';
 
+const SELF_APPROVAL_MESSAGE =
+  'You cannot approve your own request. ' +
+  'Please ask your admin or another team member to review and approve it on your behalf.';
+
+/**
+ *
+ * @param {import('../../lib/models.js').ApprovalActionData} actionData
+ * @param {string} approverName - event.user.name of whoever clicked
+ * @param {import('../../lib/chat_client.js').ChatClient} chatClient
+ * @returns {Promise<boolean>} true if blocked (caller should return early)
+ */
+export async function blockSelfApproval(actionData, approverName, chatClient) {
+  if (!approverName || approverName !== actionData.requesterUserName) {
+    return false;
+  }
+  getLogger().info(
+    { approvalId: actionData.approvalId, approverName },
+    'Blocked self-approval attempt',
+  );
+  try {
+    await chatClient.sendDm(approverName, SELF_APPROVAL_MESSAGE);
+  } catch (error) {
+    getLogger().warn(
+      { err: error, approverName },
+      'Could not send self-approval block message',
+    );
+  }
+  return true;
+}
+
 /**
  * Map typed Chat action names (folder / OTS suffixes) back to shared handlers
  * and force requestType so search/grant cannot silently fall back to records.

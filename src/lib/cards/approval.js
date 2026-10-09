@@ -5,11 +5,21 @@
 import {
   BTN,
   buildRequestCard,
+  escapeHtmlText,
   permissionAndDurationWidgets,
   typedAwareAction
 } from './shared.js';
 
-import { formatPermissionName, isPamUserRecordType } from '../utils.js';
+import { formatPermissionName, isPamUserRecordType, sanitizeHyperlinks } from '../utils.js';
+
+/**
+ * HTML-escape AND strip URL-forming chars before interpolating requester-
+ * or approver-typed free text into card HTML.
+ * @param {unknown} value
+ */
+function safeText(value) {
+  return escapeHtmlText(sanitizeHyperlinks(String(value ?? '')));
+}
 
 /**
  * @param {import('./models.js').ApprovalActionData} actionData
@@ -40,11 +50,12 @@ export function buildApprovalCard(actionData, item = null, options = {}) {
   const bodySections = [];
 
   if (error) {
-    const safeError = error
-      .replaceAll('&', '&amp;')
-      .replaceAll('<', '&lt;')
-      .replaceAll('>', '&gt;')
-      .slice(0, 500);
+    // Error strings are often built by concatenating a Commander error
+    // message with user-supplied search text (e.g. "Search failed for
+    // "<query>": <errText>") — safeText() strips URL structure in addition
+    // to escaping HTML, so neither half can become a clickable link
+    // (KGC-26-06), regardless of which call site built the string.
+    const safeError = safeText(error).slice(0, 500);
     bodySections.push({
       widgets: [
         { divider: {} },
@@ -62,24 +73,29 @@ export function buildApprovalCard(actionData, item = null, options = {}) {
   if (isUid && detailsItem) {
     let details;
     if (forFolder) {
-      const typeDisplay = String(detailsItem.folderType || 'folder').replaceAll(
-        '_',
-        ' ',
+      // Folder name/notes/record title below are Keeper-vault-controlled
+      // (any user with write access to the item can set them) and must be
+      // HTML-escaped before interpolation into card text — unescaped
+      // interpolation allowed arbitrary HTML/links to render inside the
+      // trusted bot's approval card (KGC-26-04).
+      const typeDisplay = escapeHtmlText(
+        String(detailsItem.folderType || 'folder').replaceAll('_', ' '),
       );
       details =
-        `<b>Title:</b> ${detailsItem.name}<br>` + `<b>Type:</b> ${typeDisplay}`;
+        `<b>Title:</b> ${escapeHtmlText(detailsItem.name)}<br>` +
+        `<b>Type:</b> ${typeDisplay}`;
       if (detailsItem.isNsf) {
         details += '<br><b>Share mode:</b> Nested Share Folder (NSF)';
       }
     } else {
       details =
-        `<b>Title:</b> ${detailsItem.title}<br>` +
-        `<b>Type:</b> ${String(detailsItem.recordType).replaceAll('_', ' ')}`;
+        `<b>Title:</b> ${escapeHtmlText(detailsItem.title)}<br>` +
+        `<b>Type:</b> ${escapeHtmlText(String(detailsItem.recordType).replaceAll('_', ' '))}`;
       if (detailsItem.isNsf) {
         details += '<br><b>Share mode:</b> Nested Share Folder (NSF)';
       }
       if (detailsItem.notes) {
-        details += `<br><b>Description:</b> ${String(detailsItem.notes).slice(0, 200)}`;
+        details += `<br><b>Description:</b> ${escapeHtmlText(String(detailsItem.notes).slice(0, 200))}`;
       } else {
         details += '<br><b>Description:</b> <i>No description</i>';
       }
@@ -254,6 +270,8 @@ export function buildApprovalCard(actionData, item = null, options = {}) {
  * @param {{ title: string, detail: string }} options
  */
 export function buildLoadingCard(actionData, { title, detail }) {
+  const safeTitle = safeText(title);
+  const safeDetail = safeText(detail);
   return buildRequestCard(actionData, [
     {
       widgets: [
@@ -261,8 +279,8 @@ export function buildLoadingCard(actionData, { title, detail }) {
         {
           textParagraph: {
             text:
-              `⏳ <b>${title}</b><br>` +
-              `<i>${detail}</i><br><br>` +
+              `⏳ <b>${safeTitle}</b><br>` +
+              `<i>${safeDetail}</i><br><br>` +
               '<font color="#888888">Please wait — this card will update when the action completes.</font>',
           },
         },
@@ -327,8 +345,8 @@ export function buildApprovedCard(actionData, approverEmail, permission, expires
           {
             textParagraph: {
               text:
-                `<b>${itemLabel}:</b> <code>${actionData.identifier}</code><br>` +
-                `<b>Approved by:</b> ${approverEmail}` +
+                `<b>${itemLabel}:</b> <code>${safeText(actionData.identifier)}</code><br>` +
+                `<b>Approved by:</b> ${escapeHtmlText(approverEmail)}` +
                 (extras.oneTimeShare
                   ? ''
                   : `<br><b>Permission:</b> ${formatPermissionName(permission)}`) +
@@ -360,7 +378,7 @@ export function buildDeniedCard(actionData, approverEmail) {
             textParagraph: {
               text:
                 `<font color="#D93838"><b>Access request denied.</b></font><br><br>` +
-                `<b>Denied by:</b> ${approverEmail}`,
+                `<b>Denied by:</b> ${escapeHtmlText(approverEmail)}`,
             },
           },
         ],
@@ -386,8 +404,8 @@ export function buildOwnerAlreadyHasAccessCard(actionData, approverEmail) {
                 `<font color="#D97706"><b>User Already Has Full Access (Owner)</b></font><br><br>` +
                 `The requester already owns this record and has full access.<br>` +
                 `No share change was applied.<br><br>` +
-                `<b>Record:</b> <code>${actionData.identifier}</code><br>` +
-                `<b>Reviewed by:</b> ${approverEmail}`,
+                `<b>Record:</b> <code>${safeText(actionData.identifier)}</code><br>` +
+                `<b>Reviewed by:</b> ${escapeHtmlText(approverEmail)}`,
             },
           },
         ],

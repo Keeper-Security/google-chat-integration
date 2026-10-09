@@ -337,16 +337,22 @@ export function requestSummaryColumns(actionData, options = {}) {
     : actionData.isOneTimeShareRequest
       ? 'Record'
       : 'Record';
-  // Identifier / justification are sanitized to prevent URL injection.
-  const safeIdentifier = sanitizeHyperlinks(actionData.identifier);
-  const safeJustification = sanitizeHyperlinks(actionData.justification);
+  // Identifier / justification are requester-controlled free text: strip
+  // URL-forming chars (sanitizeHyperlinks) AND HTML-escape (escapeHtmlText)
+  // before interpolation — sanitizeHyperlinks alone does not neutralize
+  // tags like <b>/<font>, only ":"/"/".
+  const safeIdentifier = escapeHtmlText(sanitizeHyperlinks(actionData.identifier));
+  const safeJustification = escapeHtmlText(sanitizeHyperlinks(actionData.justification));
   const leftWidgets = [
-    fieldWidget('Requester', actionData.requesterLabel),
+    fieldWidget('Requester', escapeHtmlText(actionData.requesterLabel)),
     fieldWidget(itemLabel, `<code>${safeIdentifier}</code>`),
   ];
   if (searchedQuery && searchedQuery !== actionData.identifier) {
     leftWidgets.push(
-      fieldWidget('Searched', `<code>${sanitizeHyperlinks(searchedQuery)}</code>`),
+      fieldWidget(
+        'Searched',
+        `<code>${escapeHtmlText(sanitizeHyperlinks(searchedQuery))}</code>`,
+      ),
     );
   }
   leftWidgets.push(fieldWidget('Requested', formatTimestamp()));
