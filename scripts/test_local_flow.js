@@ -596,6 +596,29 @@ async function main() {
     'Shared To': 'user@example.com',
     Permissions: perm,
   }));
+  shareRows.push(
+    {
+      'Folder UID': 'sfTeam',
+      'Folder Name': 'Classic via team',
+      Type: 'Shared Folder',
+      'Shared To': '(Team) Engineering',
+      Permissions: 'Can Manage Users & Records',
+    },
+    {
+      'Folder UID': 'sfTeam',
+      'Folder Name': 'Classic via team',
+      Type: 'Shared Folder',
+      'Shared To': '(Team User) user@example.com',
+      Permissions: 'Can Manage Users & Records',
+    },
+    {
+      'Folder UID': 'nsfTeamView',
+      'Folder Name': 'NSF via team, viewer',
+      Type: 'Nested Share Folder',
+      'Shared To': '(Team User) user@example.com',
+      Permissions: 'Viewer',
+    },
+  );
   shareRows.push({
     'Folder UID': 'sfOther',
     'Folder Name': 'Other user',
@@ -605,10 +628,10 @@ async function main() {
   });
   const shareInfo = await getUserShareInfo(fakeCommander(shareRows), 'User@Example.com');
   const writable = [...shareInfo.writableUids].sort().join(',');
-  if (writable !== 'nsfCm,sfAll,sfRw') {
+  if (writable !== 'nsfCm,sfAll,sfRw,sfTeam') {
     throw new Error(`Unexpected writable folders from share-report: ${writable}`);
   }
-  if (shareInfo.folders.map((f) => f.uid).sort().join(',') !== 'nsfCm,sfAll,sfRw') {
+  if (shareInfo.folders.map((f) => f.uid).sort().join(',') !== 'nsfCm,sfAll,sfRw,sfTeam') {
     throw new Error('getUserShareInfo must list only writable folders');
   }
 
