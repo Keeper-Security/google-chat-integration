@@ -102,7 +102,16 @@ function hasWritePermission(folderType, permissions) {
 }
 
 /**
- * Single parse of `share-report -f --format=json` scoped to one user,
+ * Prefix share-report puts on a team member's row with --show-team-users.
+ * The member gets the team's permission on the folder.
+ */
+const TEAM_USER_PREFIX = '(team user) ';
+
+/**
+ * Single parse of `share-report -f -tu --format=json` scoped to one user.
+ * -tu expands team shares into one row per member, so access through a
+ * team counts. Commander can only expand teams when the bot account can
+ * see enterprise team membership; otherwise team access is not counted.
  * @param {import('./client.js').KeeperClient} client
  * @param {string} userEmail
  * @returns {Promise<{ folders: Array<{uid:string,name:string,type:string,is_nsf:boolean}>, writableUids: Set<string> }>}
@@ -112,7 +121,7 @@ async function fetchUserShareInfo(client, userEmail) {
   if (!email) return { folders: [], writableUids: new Set() };
 
   const submitted = await client.executeCommandSafe(
-    'share-report -f --format=json',
+    'share-report -f -tu --format=json',
     30000,
   );
   if (!submitted.ok) {
@@ -136,7 +145,10 @@ async function fetchUserShareInfo(client, userEmail) {
 
   for (const item of rows) {
     if (!item || typeof item !== 'object') continue;
-    const sharedTo = String(item['Shared To'] || item.shared_to || '').toLowerCase();
+    let sharedTo = String(item['Shared To'] || item.shared_to || '').trim().toLowerCase();
+    if (sharedTo.startsWith(TEAM_USER_PREFIX)) {
+      sharedTo = sharedTo.slice(TEAM_USER_PREFIX.length).trim();
+    }
     if (sharedTo !== email) continue;
 
     const uid = String(item['Folder UID'] || item.folder_uid || item.uid || '');
