@@ -432,8 +432,29 @@ export class KeeperClient {
     return create.getUserSharedFolders(this, userEmail);
   }
 
-  async listSubfolders(sharedFolderUid) {
-    return create.listSubfolders(this, sharedFolderUid);
+  /**
+   * @param {string} userEmail
+   * @returns {Promise<Set<string>>}
+   */
+  async getUserWritableFolderUids(userEmail) {
+    return create.getUserWritableFolderUids(this, userEmail);
+  }
+
+  /**
+   * Folder list + writable-UID set in one share-report round trip.
+   * @param {string} userEmail
+   * @returns {Promise<{ folders: object[], writableUids: Set<string> }>}
+   */
+  async getUserShareInfo(userEmail) {
+    return create.getUserShareInfo(this, userEmail);
+  }
+
+  /**
+   * @param {string} sharedFolderUid
+   * @param {Set<string>} writableUids
+   */
+  async listSubfolders(sharedFolderUid, writableUids) {
+    return create.listSubfolders(this, sharedFolderUid, writableUids);
   }
 
   /**

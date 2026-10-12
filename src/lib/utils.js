@@ -42,12 +42,13 @@ export function parseCommandText(argumentText) {
   const text = (argumentText || '').trim();
   if (!text) return ['', ''];
 
-  const quoted = text.match(/^["']([^"']+)["']\s*(.*)$/s);
+
+  const quoted = text.match(/^(["'])(.*?)\1\s*(.*)$/s);
   if (quoted) {
-    let identifier = quoted[1].trim();
+    let identifier = quoted[2].trim();
  // Strip markdown wrappers from identifiers (*, _, ~, `).
     identifier = identifier.replace(/^[*_~`]+|[*_~`]+$/g, '');
-    return [identifier, (quoted[2] || '').trim()];
+    return [identifier, (quoted[3] || '').trim()];
   }
 
   const parts = text.split(/\s+/);
@@ -79,12 +80,15 @@ export function sanitizeMentions(text) {
 
 /**
  * Prevent URL injection in displayed text.
- * Removes `:` and `/` so values cannot become clickable links.
+ *
  * @param {string} text
  */
 export function sanitizeHyperlinks(text) {
   if (!text) return text || '';
-  return String(text).replace(/:/g, '').replace(/\//g, '');
+  return String(text)
+    .replace(/:/g, '')
+    .replace(/\//g, '')
+    .replace(/\./g, '.​');
 }
 
 /**
@@ -94,16 +98,23 @@ export function sanitizeHyperlinks(text) {
  */
 export function sanitizeCommandInput(text) {
   if (!text) return text || '';
-  return String(text).replace(COMMAND_UNSAFE_CHARS, '').trim();
+  return String(text)
+    .replace(COMMAND_UNSAFE_CHARS, '')
+    .replace(/^-+/, '')
+    .trim();
 }
 
 /**
  * Sanitize Commander search terms.
+
  * @param {string} query
  */
 export function sanitizeSearchQuery(query) {
   if (!query) return '';
-  return String(query).replace(SEARCH_UNSAFE_CHARS, '').trim();
+  return String(query)
+    .replace(SEARCH_UNSAFE_CHARS, '')
+    .replace(/(^|\s)-+/g, '$1')
+    .trim();
 }
 
 /**

@@ -2,7 +2,7 @@
  * Approver create-record form card.
  */
 
-import { BTN, buildRequestCard } from './shared.js';
+import { BTN, buildRequestCard, escapeHtmlText } from './shared.js';
 
 /**
  * Create New Record card (Chat in-place form; no stacked modal API).
@@ -37,7 +37,7 @@ export function buildCreateRecordCard(actionData, options = {}) {
       widgets: [
         {
           textParagraph: {
-            text: `<font color="#D93838"><b>Could not create record</b></font><br><code>${error}</code>`,
+            text: `<font color="#D93838"><b>Could not create record</b></font><br><code>${escapeHtmlText(error)}</code>`,
           },
         },
         { divider: {} },
@@ -50,7 +50,7 @@ export function buildCreateRecordCard(actionData, options = {}) {
       {
         textParagraph: {
           text:
-            `<b>Creating record for:</b> ${actionData.requesterLabel}<br>` +
+            `<b>Creating record for:</b> ${escapeHtmlText(actionData.requesterLabel)}<br>` +
             `<font color="#666666"><i>After creation, you'll be able to review and approve sharing</i></font>`,
         },
       },

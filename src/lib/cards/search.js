@@ -6,11 +6,12 @@ import {
   BTN,
   SEARCH_RESULT_DISPLAY_LIMIT,
   buildRequestCard,
+  escapeHtmlText,
   permissionAndDurationWidgets,
   typedAwareAction
 } from './shared.js';
 import { encodeSearchItemValue } from '../models.js';
-import { formatDuration, isPamUserRecordType } from '../utils.js';
+import { formatDuration, isPamUserRecordType, sanitizeHyperlinks } from '../utils.js';
 
 /**
  * Search Records / Folders card — body only; keeps the shared approval shell
@@ -136,8 +137,8 @@ export function buildSearchResultsCard(actionData, results, options = {}) {
                   textParagraph: {
                     text:
                       showingCount === 0
-                        ? `⚠️ <i>Showing 0 result(s) for:</i> <font color="#c5221f"><code>${currentQuery}</code></font>`
-                        : `<i>${countLabel} result(s) for:</i> <font color="#c5221f"><code>${currentQuery}</code></font>`,
+                        ? `⚠️ <i>Showing 0 result(s) for:</i> <font color="#c5221f"><code>${escapeHtmlText(sanitizeHyperlinks(currentQuery))}</code></font>`
+                        : `<i>${countLabel} result(s) for:</i> <font color="#c5221f"><code>${escapeHtmlText(sanitizeHyperlinks(currentQuery))}</code></font>`,
                   },
                 },
               ],
@@ -182,7 +183,7 @@ export function buildSearchResultsCard(actionData, results, options = {}) {
       widgets: [
         {
           textParagraph: {
-            text: `✅ New record <b>'${actionData.newlyCreatedTitle}'</b> created`,
+            text: `✅ New record <b>'${escapeHtmlText(sanitizeHyperlinks(actionData.newlyCreatedTitle))}'</b> created`,
           },
         },
       ],

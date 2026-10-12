@@ -11,7 +11,7 @@ import {
   handleSubmitCreateRecord,
 } from './create_record_actions.js';
 import { grantAndNotify, handleApproveSearchResult, handleDeny } from './grant_actions.js';
-import { resolveTypedAwareMethod } from './helpers.js';
+import { blockSelfApproval, resolveTypedAwareMethod } from './helpers.js';
 import {
   handleBackToApproval,
   handleRefineSearch,
@@ -217,6 +217,10 @@ export async function handleCardClicked(
 
   if (method !== 'approve_request') {
     logger.warn({ method }, 'Unhandled card action');
+    return;
+  }
+
+  if (await blockSelfApproval(actionData, approverName, chatClient)) {
     return;
   }
 

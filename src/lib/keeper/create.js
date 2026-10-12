@@ -67,14 +67,49 @@ export async function createOneTimeShare(client, {
 }
 
 /**
- * Shared folders visible to a user via `share-report -f --format=json`.
- * Filter share-report rows where Shared To matches the user email.
- * @param {string} userEmail
- * @returns {Promise<Array<{ uid: string, name: string, type: string, is_nsf: boolean }>>}
+ * Write-capable "Permissions" labels from `share-report -f --format=json`
+ * for classic Shared Folders. Commander's own report builder has a literal
+ * typo for the records-only label — "Cam Manage Records" (not "Can") — see
+ * ShareReportCommand.get_share_info() in Keeper Commander. Matching the
+ * typo is required or classic folders shared with only record-management
+ * (not user-management) rights are missed.
  */
-export async function getUserSharedFolders(client, userEmail) {
+const SHARED_FOLDER_WRITE_PERMISSIONS = new Set([
+  'Cam Manage Records',
+  'Can Manage Users & Records',
+]);
+
+/** Write-capable "Permissions" labels for Nested Share Folders. */
+const NSF_WRITE_PERMISSIONS = new Set([
+  'Content Manager',
+  'Content and Share Manager',
+  'Full Manager',
+]);
+
+/**
+ * Whether a share-report row's permission label grants write access
+ * (ability to add/manage records) rather than view-only or
+ * sharing-management-only access.
+ * @param {string} folderType - the row's "Type" field
+ * @param {string} permissions - the row's "Permissions" field
+ */
+function hasWritePermission(folderType, permissions) {
+  const perm = String(permissions || '').trim();
+  const isNsf = String(folderType || '').trim().toLowerCase() === 'nested share folder';
+  return isNsf
+    ? NSF_WRITE_PERMISSIONS.has(perm)
+    : SHARED_FOLDER_WRITE_PERMISSIONS.has(perm);
+}
+
+/**
+ * Single parse of `share-report -f --format=json` scoped to one user,
+ * @param {import('./client.js').KeeperClient} client
+ * @param {string} userEmail
+ * @returns {Promise<{ folders: Array<{uid:string,name:string,type:string,is_nsf:boolean}>, writableUids: Set<string> }>}
+ */
+async function fetchUserShareInfo(client, userEmail) {
   const email = String(userEmail || '').trim().toLowerCase();
-  if (!email) return [];
+  if (!email) return { folders: [], writableUids: new Set() };
 
   const submitted = await client.executeCommandSafe(
     'share-report -f --format=json',
@@ -82,7 +117,7 @@ export async function getUserSharedFolders(client, userEmail) {
   );
   if (!submitted.ok) {
     client.logger.error({ err: submitted.error }, 'share-report failed');
-    return [];
+    return { folders: [], writableUids: new Set() };
   }
 
   const resultData = submitted.data || {};
@@ -91,12 +126,14 @@ export async function getUserSharedFolders(client, userEmail) {
       { message: resultData.message },
       'share-report returned error',
     );
-    return [];
+    return { folders: [], writableUids: new Set() };
   }
 
   const rows = client.extractRecords(resultData);
   const seen = new Set();
   const folders = [];
+  const writableUids = new Set();
+
   for (const item of rows) {
     if (!item || typeof item !== 'object') continue;
     const sharedTo = String(item['Shared To'] || item.shared_to || '').toLowerCase();
@@ -105,8 +142,15 @@ export async function getUserSharedFolders(client, userEmail) {
     const uid = String(item['Folder UID'] || item.folder_uid || item.uid || '');
     const name = String(item['Folder Name'] || item.folder_name || item.name || '');
     const folderType = String(item.Type || item.type || 'Shared Folder');
+    const permissions = String(item.Permissions || item.permissions || '');
     const isNsf = folderType.trim().toLowerCase() === 'nested share folder';
-    if (!uid || !name || seen.has(uid)) continue;
+    if (!uid || !name) continue;
+
+    if (hasWritePermission(folderType, permissions)) {
+      writableUids.add(uid);
+    }
+
+    if (seen.has(uid)) continue;
     seen.add(uid);
     folders.push({
       uid,
@@ -116,21 +160,75 @@ export async function getUserSharedFolders(client, userEmail) {
     });
   }
 
+  return { folders, writableUids };
+}
+
+/**
+ * Shared folders a user can create records in — filtered to those where
+ * share-report reports write-level permission (Can Manage Records /
+ * Content Manager or above), not merely "shared with them in some
+ * capacity". KGC-26-01 fix: a folder the user can only view is no longer
+ * offered as a create-secret destination.
+ * @param {string} userEmail
+ * @returns {Promise<Array<{ uid: string, name: string, type: string, is_nsf: boolean }>>}
+ */
+export async function getUserSharedFolders(client, userEmail) {
+  const { folders } = await getUserShareInfo(client, userEmail);
   client.logger.debug(
-    { count: folders.length, email },
-    'Retrieved user shared folders',
+    { count: folders.length, email: userEmail },
+    'Retrieved user shared folders with write access',
   );
   return folders;
 }
 
 /**
- * Subfolders inside a shared folder via `tree -s -v <uid>`.
+ * Folder UIDs a user has write access to, from the same share-report parse
+ * used by getUserSharedFolders. KGC-26-01 fix: card-click parameters
+ * (folder_uid, subfolder selection) are client-supplied and therefore
+ * attacker-controlled — this must be used to re-validate the target folder
+ * server-side immediately before any privileged record-add, not only to
+ * filter what the dropdown displays.
+ * @param {string} userEmail
+ * @returns {Promise<Set<string>>}
+ */
+export async function getUserWritableFolderUids(client, userEmail) {
+  const { writableUids } = await fetchUserShareInfo(client, userEmail);
+  return writableUids;
+}
+
+/**
+ * Both the write-access folder list and UID set in a single share-report
+ * round trip — for call sites that need both (e.g. rendering a folder
+ * picker and immediately validating the selection), avoiding a duplicate
+ * Commander call.
+ * @param {string} userEmail
+ * @returns {Promise<{ folders: Array<{uid:string,name:string,type:string,is_nsf:boolean}>, writableUids: Set<string> }>}
+ */
+export async function getUserShareInfo(client, userEmail) {
+  const { folders, writableUids } = await fetchUserShareInfo(client, userEmail);
+  const writableFolders = folders.filter((f) => writableUids.has(f.uid));
+  return { folders: writableFolders, writableUids };
+}
+
+/**
+ * Subfolders inside a shared folder via `tree -s -v <uid>`, filtered to
+ * only those the caller has write access to (per writableUids, from
+ * getUserWritableFolderUids).
  * @param {string} sharedFolderUid
+ * @param {Set<string>} writableUids - from getUserWritableFolderUids(client, userEmail)
  * @returns {Promise<Array<{ uid: string, name: string, path: string, level: number, type: string, is_nsf: boolean }>>}
  */
-export async function listSubfolders(client, sharedFolderUid) {
+export async function listSubfolders(client, sharedFolderUid, writableUids) {
   const uid = String(sharedFolderUid || '').trim();
   if (!uid) return [];
+
+  if (!(writableUids instanceof Set)) {
+    client.logger.error(
+      { sharedFolderUid: uid },
+      'listSubfolders called without a writable-UID set; denying all subfolders (fail closed)',
+    );
+    return [];
+  }
 
   const submitted = await client.executeCommandSafe(
     `tree -s -v ${shellQuote(uid)}`,
@@ -182,11 +280,12 @@ export async function listSubfolders(client, sharedFolderUid) {
     });
   }
 
+  const writable = subfolders.filter((sf) => writableUids.has(sf.uid));
   client.logger.debug(
-    { count: subfolders.length, sharedFolderUid: uid },
-    'Retrieved subfolders',
+    { count: writable.length, totalFound: subfolders.length, sharedFolderUid: uid },
+    'Retrieved subfolders with write access',
   );
-  return subfolders;
+  return writable;
 }
 
 /**

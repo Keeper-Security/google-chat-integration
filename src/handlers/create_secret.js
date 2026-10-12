@@ -12,7 +12,7 @@ import {
 import { isPeerDmSpace } from '../lib/event_utils.js';
 import { getLogger } from '../lib/logger.js';
 import { decodeSearchItemValue } from '../lib/models.js';
-import { sanitizeCommandInput } from '../lib/utils.js';
+import { sanitizeCommandInput, sanitizeHyperlinks } from '../lib/utils.js';
 
 /**
  * Slash command: load shared folders and show folder-select card.
@@ -194,10 +194,31 @@ async function handleFolderNext(event, chatClient, keeperClient) {
     return;
   }
 
-  const [folderUid, parentIsNsf] = decodeSearchItemValue(selected);
-  const folders = email ? await keeperClient.getUserSharedFolders(email) : [];
+
+  const [folderUid] = decodeSearchItemValue(selected);
+  const { folders, writableUids } = email
+    ? await keeperClient.getUserShareInfo(email)
+    : { folders: [], writableUids: new Set() };
   const matched = folders.find((f) => f.uid === folderUid);
-  const folderName = matched?.name || folderUid;
+
+  if (!matched) {
+    logger.warn(
+      { email, folderUid },
+      'Rejected create-secret folder selection: no write access',
+    );
+    await patchCard(
+      chatClient,
+      messageName,
+      buildCreateSecretFolderSelectCard(folders, {
+        error: 'You do not have write access to that folder. Please select another.',
+      }),
+      'You do not have write access to that folder.',
+    );
+    return;
+  }
+
+  const folderName = matched.name;
+  const parentIsNsf = Boolean(matched.is_nsf);
 
   await patchCard(
     chatClient,
@@ -221,21 +242,21 @@ async function handleFolderNext(event, chatClient, keeperClient) {
         },
       },
     ],
-    `Loading ${folderName}…`,
+    `Loading ${sanitizeHyperlinks(folderName)}…`,
   );
 
   try {
-    const subfolders = await keeperClient.listSubfolders(folderUid);
+    const subfolders = await keeperClient.listSubfolders(folderUid, writableUids);
     await patchCard(
       chatClient,
       messageName,
       buildCreateSecretRecordFormCard({
         folderName,
         folderUid,
-        parentIsNsf: matched ? Boolean(matched.is_nsf) : parentIsNsf,
+        parentIsNsf,
         subfolders: subfolders.length ? subfolders : null,
       }),
-      `Creating record in ${folderName}`,
+      `Creating record in ${sanitizeHyperlinks(folderName)}`,
     );
   } catch (error) {
     logger.error({ err: error }, 'Failed to load create-secret form');
@@ -245,7 +266,7 @@ async function handleFolderNext(event, chatClient, keeperClient) {
       buildCreateSecretRecordFormCard({
         folderName,
         folderUid,
-        parentIsNsf: matched ? Boolean(matched.is_nsf) : parentIsNsf,
+        parentIsNsf,
         error: 'Failed to load folder details. Please try again.',
       }),
       'Failed to load folder details.',
@@ -266,9 +287,11 @@ async function handleSubmit(event, config, chatClient, keeperClient, approverBou
     (event.action?.parameters || []).map((p) => [p.key, p.value]),
   );
 
+
   const folderUid = params.folder_uid || '';
   const folderName = params.folder_name || 'Shared Folder';
   const parentIsNsf = String(params.parent_is_nsf || 'false').toLowerCase() === 'true';
+  const email = event.user?.email || '';
 
   const rawTitle = (extractFormValue(event, 'secret_title') || '').trim();
   const rawLogin = (extractFormValue(event, 'secret_login') || '').trim();
@@ -295,9 +318,13 @@ async function handleSubmit(event, config, chatClient, keeperClient, approverBou
     subfolder: subfolderValue || '',
   };
 
+  const writableUids = email
+    ? await keeperClient.getUserWritableFolderUids(email)
+    : new Set();
+
   const restoreForm = async (error) => {
     const subfolders = folderUid
-      ? await keeperClient.listSubfolders(folderUid)
+      ? await keeperClient.listSubfolders(folderUid, writableUids)
       : [];
     await patchCard(
       chatClient,
@@ -334,7 +361,7 @@ async function handleSubmit(event, config, chatClient, keeperClient, approverBou
     if (selUid && selUid !== folderUid) {
       targetFolderUid = selUid;
       const knownSubs = folderUid
-        ? await keeperClient.listSubfolders(folderUid)
+        ? await keeperClient.listSubfolders(folderUid, writableUids)
         : [];
       const matchSub = knownSubs.find((s) => s.uid === selUid);
       // Prefer fresh folder metadata from Commander and never downgrade NSF
@@ -342,6 +369,16 @@ async function handleSubmit(event, config, chatClient, keeperClient, approverBou
       targetIsNsf = Boolean(parentIsNsf || matchSub?.is_nsf || selIsNsf);
       subfolderPath = matchSub?.path || matchSub?.name || selUid;
     }
+  }
+
+
+  if (!targetFolderUid || !writableUids.has(targetFolderUid)) {
+    logger.warn(
+      { email, targetFolderUid },
+      'Rejected create-secret submission: no write access to target folder',
+    );
+    await restoreForm('You do not have write access to that folder. Please select another.');
+    return;
   }
 
   const folderPath = subfolderPath
@@ -374,7 +411,7 @@ async function handleSubmit(event, config, chatClient, keeperClient, approverBou
         },
       },
     ],
-    `Creating ${title}…`,
+    `Creating ${sanitizeHyperlinks(title)}…`,
   );
 
   const generatePassword =
@@ -405,7 +442,7 @@ async function handleSubmit(event, config, chatClient, keeperClient, approverBou
           recordUid,
           folderPath,
         }),
-        `Record created: ${title}`,
+        `Record created: ${sanitizeHyperlinks(title)}`,
       );
 
       const user = event.user || {};
@@ -424,7 +461,7 @@ async function handleSubmit(event, config, chatClient, keeperClient, approverBou
           await chatClient.postMessage({
             parent: approvalsSpace,
             message: {
-              text: `User ${userLabel} added record ${recordUid} to ${folderPath}`,
+              text: `User ${userLabel} added record ${recordUid} to ${sanitizeHyperlinks(folderPath)}`,
               cardsV2: buildCreateSecretNotificationCard({
                 userLabel,
                 recordUid,

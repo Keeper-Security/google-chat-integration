@@ -6,9 +6,11 @@ import { buildApprovalCard, buildLoadingCard, buildSearchResultsCard } from '../
 
 import { decodeSearchItemValue } from '../../lib/models.js';
 import { getLogger } from '../../lib/logger.js';
+import { sanitizeHyperlinks } from '../../lib/utils.js';
 
 import { extractFormValue } from './form_utils.js';
 import {
+  blockSelfApproval,
   resolveFolderPamFlag,
   restoreApprovalCard,
   searchVaultItemsScoped,
@@ -25,6 +27,10 @@ export async function handleSearchRecords(
   channelId,
   approverEmail,
 ) {
+  if (await blockSelfApproval(actionData, approverName, chatClient)) {
+    return;
+  }
+
   const logger = getLogger();
   const query = actionData.identifier;
   const itemWord = actionData.isFolderRequest ? 'folders' : 'records';
@@ -35,7 +41,7 @@ export async function handleSearchRecords(
 
   if (messageName) {
     await chatClient.patchMessage(messageName, {
-      text: `Searching for "${query}"…`,
+      text: `Searching for "${sanitizeHyperlinks(query)}"…`,
       cardsV2: buildLoadingCard(actionData, {
         title: `Searching Keeper Vault for "${query}"…`,
         detail: `Please wait while ${itemWord} are being fetched.`,
@@ -68,11 +74,11 @@ export async function handleSearchRecords(
     logger.error({ err, query }, 'Search failed');
     const errText = err.message || 'Unknown error';
     await restoreApprovalCard(actionData, messageName, chatClient, keeperClient, {
-      error: `Search failed for "${query}": ${errText}`,
+      error: `Search failed for "${sanitizeHyperlinks(query)}": ${sanitizeHyperlinks(errText)}`,
     });
     await chatClient.sendDm(
       approverName,
-      `Search failed for "${query}": ${errText}`,
+      `Search failed for "${sanitizeHyperlinks(query)}": ${sanitizeHyperlinks(errText)}`,
     );
     return;
   }
@@ -80,11 +86,11 @@ export async function handleSearchRecords(
   if (error) {
     const errText = error.error || 'Unknown Commander error';
     await restoreApprovalCard(actionData, messageName, chatClient, keeperClient, {
-      error: `Search failed for "${query}": ${errText}`,
+      error: `Search failed for "${sanitizeHyperlinks(query)}": ${sanitizeHyperlinks(errText)}`,
     });
     await chatClient.sendDm(
       approverName,
-      `Search failed for "${query}":\n${errText}`,
+      `Search failed for "${sanitizeHyperlinks(query)}":\n${sanitizeHyperlinks(errText)}`,
     );
     return;
   }
@@ -106,7 +112,7 @@ export async function handleSearchRecords(
 
   if (messageName) {
     await chatClient.patchMessage(messageName, {
-      text: `Search results for "${displayQuery}" (${items.length} found)`,
+      text: `Search results for "${sanitizeHyperlinks(displayQuery)}" (${items.length} found)`,
       cardsV2: buildSearchResultsCard(actionData, items, { isPamFolder, currentQuery: displayQuery }),
     });
   }
@@ -152,7 +158,7 @@ export async function handleUpdateSearchSelection(
     if (result.error) {
       await chatClient.sendDm(
         approverName,
-        `Unable to refresh options for "${query}":\n${result.error.error || 'Unknown Commander error'}`,
+        `Unable to refresh options for "${sanitizeHyperlinks(query)}":\n${sanitizeHyperlinks(result.error.error || 'Unknown Commander error')}`,
       );
       return;
     }
@@ -160,7 +166,7 @@ export async function handleUpdateSearchSelection(
     logger.error({ err, query }, 'Failed to refresh search selection');
     await chatClient.sendDm(
       approverName,
-      `Unable to refresh options for "${query}": ${err.message || 'Unknown error'}`,
+      `Unable to refresh options for "${sanitizeHyperlinks(query)}": ${sanitizeHyperlinks(err.message || 'Unknown error')}`,
     );
     return;
   }
@@ -184,7 +190,7 @@ export async function handleUpdateSearchSelection(
 
   if (messageName) {
     await chatClient.patchMessage(messageName, {
-      text: `Search results for "${query}" (${items.length} found)`,
+      text: `Search results for "${sanitizeHyperlinks(query)}" (${items.length} found)`,
       cardsV2: buildSearchResultsCard(actionData, items, {
         selectedValue,
         selectedDuration,
@@ -304,7 +310,7 @@ export async function handleResyncVault(
 
   if (messageName) {
     await chatClient.patchMessage(messageName, {
-      text: `Re-syncing vault, then searching for "${query}"…`,
+      text: `Re-syncing vault, then searching for "${sanitizeHyperlinks(query)}"…`,
       cardsV2: buildLoadingCard(actionData, {
         title: 'Re-syncing Keeper Vault…',
         detail: `Then searching for "${query}".`,
@@ -343,7 +349,7 @@ export async function handleResyncVault(
     if (result.error) {
       await chatClient.sendDm(
         approverName,
-        `Search after re-sync failed for "${query}":\n${result.error.error || 'Unknown Commander error'}`,
+        `Search after re-sync failed for "${sanitizeHyperlinks(query)}":\n${sanitizeHyperlinks(result.error.error || 'Unknown Commander error')}`,
       );
       await restoreApprovalCard(actionData, messageName, chatClient, keeperClient, {
         error: `Search after re-sync failed for "${query}": ${result.error.error || 'Unknown Commander error'}`,
@@ -354,11 +360,11 @@ export async function handleResyncVault(
     logger.error({ err, query }, 'Search after re-sync failed');
     const errText = err.message || 'Unknown error';
     await restoreApprovalCard(actionData, messageName, chatClient, keeperClient, {
-      error: `Search after re-sync failed for "${query}": ${errText}`,
+      error: `Search after re-sync failed for "${sanitizeHyperlinks(query)}": ${sanitizeHyperlinks(errText)}`,
     });
     await chatClient.sendDm(
       approverName,
-      `Search after re-sync failed for "${query}": ${errText}`,
+      `Search after re-sync failed for "${sanitizeHyperlinks(query)}": ${sanitizeHyperlinks(errText)}`,
     );
     return;
   }
@@ -377,7 +383,7 @@ export async function handleResyncVault(
 
   if (messageName) {
     await chatClient.patchMessage(messageName, {
-      text: `Search results for "${query}" (${items.length} found)`,
+      text: `Search results for "${sanitizeHyperlinks(query)}" (${items.length} found)`,
       cardsV2: buildSearchResultsCard(actionData, items, {
         selectedValue,
         selectedDuration,
@@ -417,7 +423,7 @@ export async function handleRefineSearch(
   const itemWord = actionData.isFolderRequest ? 'folders' : 'records';
   if (messageName) {
     await chatClient.patchMessage(messageName, {
-      text: `Searching for "${newQuery}"…`,
+      text: `Searching for "${sanitizeHyperlinks(newQuery)}"…`,
       cardsV2: buildLoadingCard(actionData, {
         title: `Searching Keeper Vault for "${newQuery}"…`,
         detail: `Please wait while ${itemWord} are being fetched.`,
@@ -443,11 +449,11 @@ export async function handleRefineSearch(
     logger.error({ err, newQuery }, 'Refine search failed');
     const errText = err.message || 'Unknown error';
     await restoreApprovalCard(actionData, messageName, chatClient, keeperClient, {
-      error: `Search failed for "${newQuery}": ${errText}`,
+      error: `Search failed for "${sanitizeHyperlinks(newQuery)}": ${sanitizeHyperlinks(errText)}`,
     });
     await chatClient.sendDm(
       approverName,
-      `Search failed for "${newQuery}": ${errText}`,
+      `Search failed for "${sanitizeHyperlinks(newQuery)}": ${sanitizeHyperlinks(errText)}`,
     );
     return;
   }
@@ -455,11 +461,11 @@ export async function handleRefineSearch(
   if (error) {
     const errText = error.error || 'Unknown Commander error';
     await restoreApprovalCard(actionData, messageName, chatClient, keeperClient, {
-      error: `Search failed for "${newQuery}": ${errText}`,
+      error: `Search failed for "${sanitizeHyperlinks(newQuery)}": ${sanitizeHyperlinks(errText)}`,
     });
     await chatClient.sendDm(
       approverName,
-      `Search failed for "${newQuery}":\n${errText}`,
+      `Search failed for "${sanitizeHyperlinks(newQuery)}":\n${sanitizeHyperlinks(errText)}`,
     );
     return;
   }
@@ -480,7 +486,7 @@ export async function handleRefineSearch(
 
   if (messageName) {
     await chatClient.patchMessage(messageName, {
-      text: `Search results for "${newQuery}" (${items.length} found)`,
+      text: `Search results for "${sanitizeHyperlinks(newQuery)}" (${items.length} found)`,
       cardsV2: buildSearchResultsCard(actionData, items, {
         currentQuery: newQuery,
         isPamFolder,
