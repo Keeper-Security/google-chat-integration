@@ -22,6 +22,8 @@ import {
   nsfExpireInFlags,
 } from '../src/lib/keeper/grants.js';
 import { invitationPending } from '../src/lib/commander_helpers.js';
+import { getFolderInfo, getUserShareInfo } from '../src/lib/keeper/create.js';
+import { extractRecords } from '../src/lib/keeper/search.js';
 import { createLogger, getLogger } from '../src/lib/logger.js';
 import { KeeperFolder, KeeperRecord, EpmRequest } from '../src/lib/models.js';
 import {
@@ -199,6 +201,7 @@ class MockKeeperClient {
   }
 
   async createRecord({ title, selfDestructDuration = null, folderUid = null }) {
+    (this.createdRecords ||= []).push({ title, folderUid });
     return {
       success: true,
       record_uid: 'newClassicRecordUid01234',
@@ -211,6 +214,7 @@ class MockKeeperClient {
   }
 
   async createNsfRecord({ title, folderUid = null }) {
+    (this.createdRecords ||= []).push({ title, folderUid });
     return {
       success: true,
       record_uid: 'newNsfRecordUidAbcdef012',
@@ -236,6 +240,29 @@ class MockKeeperClient {
         is_nsf: true,
       },
     ];
+  }
+
+  // Mirrors Commander share-report: only top-level shared folders appear,
+  // never their subfolders.
+  async getUserShareInfo(userEmail) {
+    if (!userEmail) return { folders: [], writableUids: new Set() };
+    const folders = await this.getUserSharedFolders(userEmail);
+    return {
+      folders,
+      writableUids: new Set([...folders.map((f) => f.uid), 'nsfSubWritableUid01234']),
+    };
+  }
+
+  // Mirrors `get <uid> --format=json` as parsed by getFolderInfo.
+  async getFolderInfo(folderUid) {
+    const folders = {
+      subfolderClassicUid0123: { shared_folder_uid: 'sharedFolderClassicUid01', is_nsf: false },
+      victimSubfolderUid01234: { shared_folder_uid: 'victimSharedFolderUid01', is_nsf: false },
+      nsfSubWritableUid01234: { shared_folder_uid: null, is_nsf: true },
+      nsfSubReadOnlyUid01234: { shared_folder_uid: null, is_nsf: true },
+    };
+    const f = folders[folderUid];
+    return f ? { uid: folderUid, name: folderUid, path: folderUid, ...f } : null;
   }
 
   async listSubfolders(sharedFolderUid) {
@@ -547,6 +574,62 @@ async function main() {
     !denyLine.includes('justification "Not needed"')
   ) {
     throw new Error(`Unexpected denial audit log: ${denyLine}`);
+  }
+
+  console.log('\n=== create-secret folder access parsing ===');
+  const fakeCommander = (data) => ({
+    logger,
+    extractRecords: (result) => extractRecords(null, result),
+    executeCommandSafe: async () => ({ ok: true, data: { status: 'success', data } }),
+  });
+  const shareRows = [
+    ['sfRw', 'Classic RW', 'Shared Folder', 'Cam Manage Records'],
+    ['sfAll', 'Classic All', 'Shared Folder', 'Can Manage Users & Records'],
+    ['sfRo', 'Classic RO', 'Shared Folder', 'No User Permissions'],
+    ['sfUsers', 'Classic Users', 'Shared Folder', 'Can Manage Users'],
+    ['nsfCm', 'NSF CM', 'Nested Share Folder', 'Content Manager'],
+    ['nsfView', 'NSF Viewer', 'Nested Share Folder', 'Viewer'],
+  ].map(([uid, name, type, perm]) => ({
+    'Folder UID': uid,
+    'Folder Name': name,
+    Type: type,
+    'Shared To': 'user@example.com',
+    Permissions: perm,
+  }));
+  shareRows.push({
+    'Folder UID': 'sfOther',
+    'Folder Name': 'Other user',
+    Type: 'Shared Folder',
+    'Shared To': 'someone@example.com',
+    Permissions: 'Can Manage Users & Records',
+  });
+  const shareInfo = await getUserShareInfo(fakeCommander(shareRows), 'User@Example.com');
+  const writable = [...shareInfo.writableUids].sort().join(',');
+  if (writable !== 'nsfCm,sfAll,sfRw') {
+    throw new Error(`Unexpected writable folders from share-report: ${writable}`);
+  }
+  if (shareInfo.folders.map((f) => f.uid).sort().join(',') !== 'nsfCm,sfAll,sfRw') {
+    throw new Error('getUserShareInfo must list only writable folders');
+  }
+
+  const subJson = {
+    folder_uid: 'subUid',
+    type: 'classic_folder',
+    name: 'Prod (EU)',
+    path: 'Classic RW/Prod (EU)',
+    shared_folder_uid: 'sfRw',
+  };
+  const sub = await getFolderInfo(fakeCommander(subJson), 'subUid');
+  if (sub?.shared_folder_uid !== 'sfRw' || sub.is_nsf) {
+    throw new Error('Expected classic subfolder metadata from get --format=json');
+  }
+  // `get` falls back to a title match; a different folder_uid must not count.
+  if (await getFolderInfo(fakeCommander(subJson), 'Prod (EU)')) {
+    throw new Error('getFolderInfo must reject a folder resolved by title');
+  }
+  // A top-level shared folder returns shared_folder JSON, not folder JSON.
+  if (await getFolderInfo(fakeCommander({ shared_folder_uid: 'sfRw', name: 'x' }), 'sfRw')) {
+    throw new Error('getFolderInfo must not accept a top-level shared folder as a subfolder');
   }
 
   console.log('\n=== Share invitation responses (classic + NSF) ===');
@@ -1724,6 +1807,92 @@ async function main() {
   if (!notify) {
     throw new Error('Expected create-secret notification in approvals space');
   }
+  if (mockKeeperSecret.createdRecords?.at(-1)?.folderUid !== 'subfolderClassicUid0123') {
+    throw new Error('Expected record created in the selected classic subfolder');
+  }
+
+  const submitCreateSecret = (messageId, folderUid, subfolder) =>
+    appSecret.handleEvent({
+      type: 'CARD_CLICKED',
+      user: {
+        name: 'users/requester',
+        email: 'requester@example.com',
+        displayName: 'Requester User',
+      },
+      space: { name: 'spaces/REQUESTER_DM' },
+      message: { name: `spaces/REQUESTER_DM/messages/${messageId}` },
+      action: {
+        actionMethodName: 'create_secret_submit',
+        parameters: [
+          { key: 'folder_uid', value: folderUid },
+          { key: 'folder_name', value: 'Engineering Creds' },
+          { key: 'parent_is_nsf', value: 'false' },
+          { key: '__action', value: 'create_secret_submit' },
+        ],
+      },
+      common: {
+        formInputs: {
+          ...(subfolder
+            ? { subfolder: { stringInputs: { value: [subfolder] } } }
+            : {}),
+          secret_title: { stringInputs: { value: ['Should Not Exist'] } },
+          auto_gen_password: { stringInputs: { value: ['auto_gen'] } },
+        },
+      },
+    });
+  const expectRejected = (messageId, label) => {
+    const patch = mockChatSecret.patches.find(
+      (p) =>
+        p.messageName === `spaces/REQUESTER_DM/messages/${messageId}` &&
+        p.message?.cardsV2?.[0]?.cardId === 'create-secret-form',
+    );
+    if (!patch) {
+      throw new Error(`Expected ${label} to be rejected back to the form`);
+    }
+    if (mockKeeperSecret.createdRecords.some((r) => r.title === 'Should Not Exist')) {
+      throw new Error(`${label} must not create a record`);
+    }
+  };
+
+  console.log('\nStep 20b: reject subfolder outside the selected shared folder');
+  await submitCreateSecret(
+    'MSG_CREATE_SECRET_FOREIGN_SUB',
+    'sharedFolderClassicUid01',
+    'victimSubfolderUid01234|classic|',
+  );
+  expectRejected('MSG_CREATE_SECRET_FOREIGN_SUB', 'a foreign subfolder');
+
+  console.log('\nStep 20c: reject shared folder without write access');
+  await submitCreateSecret('MSG_CREATE_SECRET_NO_WRITE', 'readOnlyFolderUid0123456', null);
+  const noWritePatch = mockChatSecret.patches.find(
+    (p) =>
+      p.messageName === 'spaces/REQUESTER_DM/messages/MSG_CREATE_SECRET_NO_WRITE' &&
+      p.message?.cardsV2?.[0]?.cardId === 'create-secret-folder',
+  );
+  if (!noWritePatch) {
+    throw new Error('Expected a folder without write access to return to folder select');
+  }
+  if (mockKeeperSecret.createdRecords.some((r) => r.title === 'Should Not Exist')) {
+    throw new Error('A folder without write access must not create a record');
+  }
+
+  console.log('\nStep 20d: NSF subfolders need their own write access');
+  await submitCreateSecret(
+    'MSG_CREATE_SECRET_NSF_SUB_RO',
+    'sharedFolderNsfUid012345',
+    'nsfSubReadOnlyUid01234|nsf|',
+  );
+  expectRejected('MSG_CREATE_SECRET_NSF_SUB_RO', 'a read-only NSF subfolder');
+  await submitCreateSecret(
+    'MSG_CREATE_SECRET_NSF_SUB_RW',
+    'sharedFolderNsfUid012345',
+    'nsfSubWritableUid01234|nsf|',
+  );
+  const nsfSubCreated = mockKeeperSecret.createdRecords.at(-1);
+  if (nsfSubCreated?.folderUid !== 'nsfSubWritableUid01234') {
+    throw new Error('Expected record created in the writable NSF subfolder');
+  }
+  mockKeeperSecret.createdRecords.pop();
 
   console.log('\nStep 21: NSF parent folder create');
   const mockChatNsf = new MockChatClient();

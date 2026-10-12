@@ -182,21 +182,6 @@ export async function getUserSharedFolders(client, userEmail) {
 }
 
 /**
- * Folder UIDs a user has write access to, from the same share-report parse
- * used by getUserSharedFolders. KGC-26-01 fix: card-click parameters
- * (folder_uid, subfolder selection) are client-supplied and therefore
- * attacker-controlled — this must be used to re-validate the target folder
- * server-side immediately before any privileged record-add, not only to
- * filter what the dropdown displays.
- * @param {string} userEmail
- * @returns {Promise<Set<string>>}
- */
-export async function getUserWritableFolderUids(client, userEmail) {
-  const { writableUids } = await fetchUserShareInfo(client, userEmail);
-  return writableUids;
-}
-
-/**
  * Both the write-access folder list and UID set in a single share-report
  * round trip — for call sites that need both (e.g. rendering a folder
  * picker and immediately validating the selection), avoiding a duplicate
@@ -211,24 +196,18 @@ export async function getUserShareInfo(client, userEmail) {
 }
 
 /**
- * Subfolders inside a shared folder via `tree -s -v <uid>`, filtered to
- * only those the caller has write access to (per writableUids, from
- * getUserWritableFolderUids).
+ * Subfolders inside a shared folder via `tree -s -v <uid>`.
+ * share-report only lists top-level shared folders, never their subfolders,
+ * so this does not filter by write access. Access to a subfolder comes from
+ * its shared folder: callers must check the user can write to
+ * sharedFolderUid (getUserShareInfo) and that a chosen subfolder is in this
+ * list.
  * @param {string} sharedFolderUid
- * @param {Set<string>} writableUids - from getUserWritableFolderUids(client, userEmail)
  * @returns {Promise<Array<{ uid: string, name: string, path: string, level: number, type: string, is_nsf: boolean }>>}
  */
-export async function listSubfolders(client, sharedFolderUid, writableUids) {
+export async function listSubfolders(client, sharedFolderUid) {
   const uid = String(sharedFolderUid || '').trim();
   if (!uid) return [];
-
-  if (!(writableUids instanceof Set)) {
-    client.logger.error(
-      { sharedFolderUid: uid },
-      'listSubfolders called without a writable-UID set; denying all subfolders (fail closed)',
-    );
-    return [];
-  }
 
   const submitted = await client.executeCommandSafe(
     `tree -s -v ${shellQuote(uid)}`,
@@ -280,12 +259,50 @@ export async function listSubfolders(client, sharedFolderUid, writableUids) {
     });
   }
 
-  const writable = subfolders.filter((sf) => writableUids.has(sf.uid));
   client.logger.debug(
-    { count: writable.length, totalFound: subfolders.length, sharedFolderUid: uid },
-    'Retrieved subfolders with write access',
+    { count: subfolders.length, sharedFolderUid: uid },
+    'Retrieved subfolders',
   );
-  return writable;
+  return subfolders;
+}
+
+/**
+ * One folder's metadata via `get <uid> --format=json`. Used to check a
+ * create-secret target on submit: `tree` output is text, and Service Mode
+ * can read the wrong UID from it when a folder name contains parentheses.
+ * `get` falls back to matching by title, so anything other than an exact
+ * folder_uid match returns null.
+ * @param {string} folderUid
+ * @returns {Promise<{ uid: string, name: string, path: string, is_nsf: boolean, shared_folder_uid: string|null }|null>}
+ */
+export async function getFolderInfo(client, folderUid) {
+  const uid = String(folderUid || '').trim();
+  if (!uid) return null;
+
+  const submitted = await client.executeCommandSafe(
+    `get ${shellQuote(uid)} --format=json`,
+    15000,
+  );
+  if (!submitted.ok) {
+    client.logger.warn({ err: submitted.error, folderUid: uid }, 'get folder failed');
+    return null;
+  }
+
+  const resultData = submitted.data || {};
+  const data = resultData.data;
+  if (resultData.status === 'error' || !data || typeof data !== 'object') return null;
+  if (String(data.folder_uid || '') !== uid) return null;
+
+  const type = String(data.type || '');
+  if (type !== 'classic_folder' && type !== 'nested_share_folder') return null;
+
+  return {
+    uid,
+    name: String(data.name || ''),
+    path: String(data.path || ''),
+    is_nsf: type === 'nested_share_folder',
+    shared_folder_uid: data.shared_folder_uid ? String(data.shared_folder_uid) : null,
+  };
 }
 
 /**

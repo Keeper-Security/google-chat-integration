@@ -5,6 +5,17 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.2] - 2026-10-12
+
+### Security
+
+- Requesters can no longer approve their own requests, from the approval card or from search results.
+- Record and folder titles, notes, and search text are escaped wherever they are shown in cards and
+  messages, and text in requests can no longer render as a clickable link.
+- Search text can no longer pass command-line options to Commander.
+- `/keeper-create-secret` only offers, and only accepts, shared folders the requester can add records
+  to. The folder is checked again on submit, and a chosen subfolder must be inside it.
+
 ## [1.1.1] - 2026-09-18
 
 ### Fixed

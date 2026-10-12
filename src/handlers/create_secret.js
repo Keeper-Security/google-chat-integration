@@ -15,6 +15,35 @@ import { decodeSearchItemValue } from '../lib/models.js';
 import { sanitizeCommandInput, sanitizeHyperlinks } from '../lib/utils.js';
 
 /**
+ * Subfolders a user may pick. Access to a classic subfolder comes from its
+ * shared folder. A nested share subfolder has its own permissions, so it is
+ * offered only if share-report gives the user write access to it.
+ * @param {Array<{ uid: string }>} subfolders
+ * @param {boolean} parentIsNsf
+ * @param {Set<string>} writableUids
+ */
+function selectableSubfolders(subfolders, parentIsNsf, writableUids) {
+  return parentIsNsf
+    ? subfolders.filter((s) => writableUids.has(s.uid))
+    : subfolders;
+}
+
+/**
+ * Whether a create-secret target subfolder is allowed, using metadata
+ * Commander returns for that exact UID (never the card parameters).
+ * @param {{ uid: string, is_nsf: boolean, shared_folder_uid: string|null }|null} target
+ * @param {{ uid: string, is_nsf: boolean }} parentFolder - a folder the user can write to
+ * @param {Set<string>} writableUids
+ */
+function canCreateInSubfolder(target, parentFolder, writableUids) {
+  if (!target) return false;
+  if (parentFolder.is_nsf) {
+    return target.is_nsf && writableUids.has(target.uid);
+  }
+  return !target.is_nsf && target.shared_folder_uid === parentFolder.uid;
+}
+
+/**
  * Slash command: load shared folders and show folder-select card.
  * @param {object} event
  * @param {object} config
@@ -246,7 +275,11 @@ async function handleFolderNext(event, chatClient, keeperClient) {
   );
 
   try {
-    const subfolders = await keeperClient.listSubfolders(folderUid, writableUids);
+    const subfolders = selectableSubfolders(
+      await keeperClient.listSubfolders(folderUid),
+      parentIsNsf,
+      writableUids,
+    );
     await patchCard(
       chatClient,
       messageName,
@@ -289,9 +322,19 @@ async function handleSubmit(event, config, chatClient, keeperClient, approverBou
 
 
   const folderUid = params.folder_uid || '';
-  const folderName = params.folder_name || 'Shared Folder';
-  const parentIsNsf = String(params.parent_is_nsf || 'false').toLowerCase() === 'true';
   const email = event.user?.email || '';
+
+  // Card parameters are client-supplied. Resolve the folder from the user's
+  // own write-access list, so the name, type and access check all come from
+  // Commander rather than the request.
+  const { folders: writableFolders, writableUids } = email
+    ? await keeperClient.getUserShareInfo(email)
+    : { folders: [], writableUids: new Set() };
+  const parentFolder = folderUid
+    ? writableFolders.find((f) => f.uid === folderUid)
+    : undefined;
+  const folderName = parentFolder?.name || '';
+  const parentIsNsf = Boolean(parentFolder?.is_nsf);
 
   const rawTitle = (extractFormValue(event, 'secret_title') || '').trim();
   const rawLogin = (extractFormValue(event, 'secret_login') || '').trim();
@@ -318,13 +361,13 @@ async function handleSubmit(event, config, chatClient, keeperClient, approverBou
     subfolder: subfolderValue || '',
   };
 
-  const writableUids = email
-    ? await keeperClient.getUserWritableFolderUids(email)
-    : new Set();
-
   const restoreForm = async (error) => {
-    const subfolders = folderUid
-      ? await keeperClient.listSubfolders(folderUid, writableUids)
+    const subfolders = parentFolder
+      ? selectableSubfolders(
+        await keeperClient.listSubfolders(folderUid),
+        parentIsNsf,
+        writableUids,
+      )
       : [];
     await patchCard(
       chatClient,
@@ -341,6 +384,22 @@ async function handleSubmit(event, config, chatClient, keeperClient, approverBou
     );
   };
 
+  if (!parentFolder) {
+    logger.warn(
+      { email, folderUid },
+      'Rejected create-secret submission: no write access to target folder',
+    );
+    await patchCard(
+      chatClient,
+      messageName,
+      buildCreateSecretFolderSelectCard(writableFolders, {
+        error: 'You do not have write access to that folder. Please select another.',
+      }),
+      'You do not have write access to that folder.',
+    );
+    return;
+  }
+
   if (!title) {
     await restoreForm('Title is required');
     return;
@@ -354,36 +413,26 @@ async function handleSubmit(event, config, chatClient, keeperClient, approverBou
   }
 
   let targetFolderUid = folderUid;
-  let targetIsNsf = parentIsNsf;
-  let subfolderPath = null;
+  let targetPath = null;
   if (subfolderValue) {
-    const [selUid, selIsNsf] = decodeSearchItemValue(subfolderValue);
+    const [selUid] = decodeSearchItemValue(subfolderValue);
     if (selUid && selUid !== folderUid) {
-      targetFolderUid = selUid;
-      const knownSubs = folderUid
-        ? await keeperClient.listSubfolders(folderUid, writableUids)
-        : [];
-      const matchSub = knownSubs.find((s) => s.uid === selUid);
-      // Prefer fresh folder metadata from Commander and never downgrade NSF
-      // when the parent folder is already NSF.
-      targetIsNsf = Boolean(parentIsNsf || matchSub?.is_nsf || selIsNsf);
-      subfolderPath = matchSub?.path || matchSub?.name || selUid;
+      const target = await keeperClient.getFolderInfo(selUid);
+      if (!canCreateInSubfolder(target, parentFolder, writableUids)) {
+        logger.warn(
+          { email, folderUid, subfolderUid: selUid },
+          'Rejected create-secret submission: no write access to subfolder',
+        );
+        await restoreForm('You do not have write access to that subfolder. Please select another.');
+        return;
+      }
+      targetFolderUid = target.uid;
+      targetPath = target.path || `${folderName} / ${target.name}`;
     }
   }
+  const targetIsNsf = parentIsNsf;
 
-
-  if (!targetFolderUid || !writableUids.has(targetFolderUid)) {
-    logger.warn(
-      { email, targetFolderUid },
-      'Rejected create-secret submission: no write access to target folder',
-    );
-    await restoreForm('You do not have write access to that folder. Please select another.');
-    return;
-  }
-
-  const folderPath = subfolderPath
-    ? `${folderName} / ${subfolderPath}`
-    : folderName;
+  const folderPath = targetPath || folderName;
 
   await patchCard(
     chatClient,
