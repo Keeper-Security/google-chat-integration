@@ -5,6 +5,18 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.4] - 2026-10-13
+
+### Changed
+
+- Updated the Keeper Secrets Manager SDK to 17.6.0, which retries throttled KSM requests correctly
+  and no longer skips records created in shared folders by Commander or the Vault UI.
+- Updated `google-auth-library` to 10.9.1.
+
+### Security
+
+- Updated `brace-expansion` to 2.1.7.
+
 ## [1.1.3] - 2026-10-13
 
 ### Security
@@ -76,6 +88,7 @@ Initial release.
 - Multi-architecture container image published to `keeper/gchat-app` for `linux/amd64` and
   `linux/arm64`.
 
+[1.1.4]: https://github.com/Keeper-Security/google-chat-integration/releases/tag/v1.1.4
 [1.1.3]: https://github.com/Keeper-Security/google-chat-integration/releases/tag/v1.1.3
 [1.1.2]: https://github.com/Keeper-Security/google-chat-integration/releases/tag/v1.1.2
 [1.1.1]: https://github.com/Keeper-Security/google-chat-integration/releases/tag/v1.1.1
